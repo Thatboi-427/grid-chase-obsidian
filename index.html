@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>GRID CHASE: LEGACY — STORM OBSIDIAN</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #010206; color: #e2e8f0; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
@@ -18,6 +19,35 @@
     background-size: 100% 3px; opacity: 0.4; transition: opacity 0.2s;
   }
   #crt-overlay.off { opacity: 0; }
+  #split-divider {
+    position: absolute; top: 0; bottom: 0; left: 50%; width: 3px; transform: translateX(-50%);
+    background: linear-gradient(180deg, rgba(250,204,21,0.9), rgba(56,189,248,0.95), rgba(250,204,21,0.9));
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.85);
+    pointer-events: none; z-index: 5; display: none;
+  }
+  #split-divider.on { display: block; }
+  #p2-hud {
+    position: absolute; bottom: 14px; right: 244px; z-index: 6; pointer-events: none; display: none;
+  }
+  #p2-hud.on { display: block; }
+  .p-tag {
+    position: absolute; top: 68px; padding: 3px 9px; border-radius: 5px;
+    font-size: 10px; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase;
+    background: rgba(4, 8, 18, 0.82); border: 1px solid rgba(250, 204, 21, 0.45);
+    pointer-events: none; z-index: 6; display: none;
+  }
+  #p1-tag { left: 14px; color: #facc15; }
+  #p2-tag { right: 14px; color: #38bdf8; border-color: rgba(56, 189, 248, 0.55); }
+  .p-tag.on { display: block; }
+  .net-box { background: rgba(10, 18, 36, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 10px; padding: 12px; margin-bottom: 12px; text-align: left; }
+  .net-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .net-code { font-size: 20px; font-weight: 900; letter-spacing: 0.2em; color: #facc15; background: #020612; border: 1px dashed #facc15; border-radius: 6px; padding: 6px 12px; font-variant-numeric: tabular-nums; }
+  .net-input { background: #020612; color: #f8fafc; border: 1px solid rgba(56, 189, 248, 0.5); border-radius: 6px; padding: 7px 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; width: 150px; }
+  .net-status { font-size: 11px; font-weight: 700; color: #38bdf8; margin-top: 8px; }
+  .net-status.ok { color: #10b981; }
+  .net-status.err { color: #f43f5e; }
+  #net-pill { display: none; margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 9.5px; font-weight: 900; background: #10b981; color: #020308; }
+  #net-pill.on { display: inline-block; }
   #visor-hud {
     position: absolute; inset: 0; pointer-events: none; z-index: 4; opacity: 0; transition: opacity 0.2s;
     border-top: 14px solid rgba(2, 6, 16, 0.72);
@@ -150,6 +180,17 @@
 <div id="viewport">
   <canvas id="fx-canvas"></canvas>
   <div id="crt-overlay"></div>
+  <div id="split-divider"></div>
+  <div id="p1-tag" class="p-tag">P1 • A/D + SPACE (WINS: <span id="p1-wins">0</span>)</div>
+  <div id="p2-tag" class="p-tag">P2 • ARROWS + ENTER (WINS: <span id="p2-wins">0</span>)</div>
+  <div id="p2-hud" class="hud-card gauges" style="border-color:rgba(56,189,248,0.5);">
+    <div class="gauge-head"><span style="color:#38bdf8;">P2 VELOCITY</span><span class="meter-big" id="p2-speed-num" style="color:#38bdf8;">0</span></div>
+    <div class="bar-wrap"><div id="p2-speed-fill" class="bar-fill" style="background:linear-gradient(90deg,#0284c7,#38bdf8,#fff);"></div></div>
+    <div class="gauge-head"><span>P2 NITRO</span><span id="p2-nitro-num" style="color:#22d3ee;">100%</span></div>
+    <div class="bar-wrap"><div id="p2-nitro-fill" class="bar-fill" style="background:linear-gradient(90deg,#06b6d4,#22d3ee,#fff);"></div></div>
+    <div class="gauge-head"><span>P2 RUBBER</span><span class="meter-big" id="p2-rubber-num" style="color:#facc15;">3.2</span></div>
+    <div class="bar-wrap"><div id="p2-rubber-fill" class="bar-fill" style="background:linear-gradient(90deg,#f43f5e,#facc15);"></div></div>
+  </div>
   <div id="visor-hud"><div id="visor-reticle"></div></div>
   <div id="vignette"></div>
   <div id="callout">TAKEDOWN +500</div>
@@ -159,7 +200,7 @@
   <div id="hud" class="menu-mode">
     <div class="top-bar">
       <div class="hud-card">
-        <div class="hud-brand">GRID CHASE: LEGACY <span id="grind-badge" class="badge">SLIPSTREAM</span></div>
+        <div class="hud-brand">GRID CHASE: LEGACY <span id="net-pill">ONLINE P2P</span><span id="grind-badge" class="badge">SLIPSTREAM</span></div>
         <div class="hud-stats">
           <span>SCORE <strong id="score">0</strong></span>
           <span>TAKEDOWNS <strong id="takedowns">0</strong></span>
@@ -216,11 +257,20 @@
 
       <div class="tabs" id="menu-tabs">
         <button class="tab-btn active" data-tab="play">Match Setup</button>
+        <button class="tab-btn" data-tab="online">Online PvP</button>
         <button class="tab-btn" data-tab="garage">Cycle Garage</button>
         <button class="tab-btn" data-tab="graphics">Display &amp; Cam</button>
       </div>
 
       <div class="tab-panel active" id="tab-play">
+        <div class="cfg-item" style="margin-bottom:10px;">
+          <label for="mode-select">Game Mode</label>
+          <select id="mode-select">
+            <option value="solo">Solo vs. AI (4 Cycles)</option>
+            <option value="split_1v1">2-Player Local Split-Screen (1v1 Duel)</option>
+            <option value="split_ai">2-Player Local Split-Screen (+2 AI Rivals)</option>
+          </select>
+        </div>
         <div class="cfg-grid">
           <div class="cfg-item">
             <label for="arena-select">Arena Sector</label>
@@ -254,6 +304,33 @@
               <option value="1.65">Hyper</option>
             </select>
           </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-online">
+        <div class="net-box">
+          <div style="font-size:10px;font-weight:800;letter-spacing:0.12em;color:#facc15;text-transform:uppercase;">1. Host an Online Room (Free WebRTC P2P)</div>
+          <div class="net-row">
+            <select id="online-mode-select" aria-label="Online Match Type">
+              <option value="online_1v1">1v1 Online Duel</option>
+              <option value="online_ai">2P Online + 2 AI Rivals</option>
+            </select>
+            <button id="host-btn" style="background:#facc15;color:#050810;border:none;">Host Room</button>
+            <span id="room-code-display" class="net-code" style="display:none;">----</span>
+            <button id="copy-code-btn" style="display:none;">Copy Code</button>
+          </div>
+          <div class="net-row" id="host-launch-row" style="display:none;">
+            <button id="online-start-btn" class="primary-btn" style="padding:8px 18px;font-size:11px;">LAUNCH ONLINE MATCH</button>
+            <button id="net-disconnect-btn" style="border-color:#f43f5e;color:#fda4af;">Disconnect</button>
+          </div>
+        </div>
+        <div class="net-box">
+          <div style="font-size:10px;font-weight:800;letter-spacing:0.12em;color:#38bdf8;text-transform:uppercase;">2. Join a Friend's Room</div>
+          <div class="net-row">
+            <input id="join-code-input" class="net-input" type="text" maxlength="10" placeholder="ROOM CODE" />
+            <button id="join-btn" style="background:#38bdf8;color:#020612;border:none;">Join Room</button>
+          </div>
+          <div id="net-status" class="net-status">Offline — Host a room or enter a friend's 4-letter code to play online via GitHub Pages.</div>
         </div>
       </div>
 
@@ -310,7 +387,7 @@
         <button class="secondary-btn" id="resume-btn" style="display:none;">RESUME MATCH</button>
       </div>
       <div class="controls-strip">
-        <kbd>A</kbd>/<kbd>Z</kbd> Turn Left • <kbd>D</kbd>/<kbd>X</kbd> Turn Right • <kbd>Space</kbd> Nitro • <kbd>Shift</kbd> Brake-Bait • <kbd>C</kbd> Camera • <kbd>P</kbd> Pause • <kbd>R</kbd> Rematch
+        P1: <kbd>A</kbd>/<kbd>D</kbd> (<kbd>Z</kbd>/<kbd>X</kbd>) + <kbd>Space</kbd> Nitro + <kbd>Shift</kbd> Brake • 2P: <kbd>←</kbd>/<kbd>→</kbd> + <kbd>↑</kbd>/<kbd>Enter</kbd> Nitro + <kbd>↓</kbd> Brake • <kbd>C</kbd> Cam • <kbd>P</kbd> Pause
       </div>
     </div>
   </div>
@@ -333,7 +410,14 @@
   let muted = false, musicOn = true, gfxMode = 'ultra', discsEnabled = true;
   let playerColor = 0xfacc15;
   let camMode = 'low', camSnap = 22, trailMode = 'forever', arenaMode = 'open', aiDiff = 'veteran', speedMult = 1;
-  let boostHeld = false, brakeHeld = false, slowMo = 0, shake = 0, camBank = 0;
+  let gameMode = 'solo', camera2 = null, lookTarget2 = new THREE.Vector3(), camBank2 = 0;
+  let boostHeld = false, brakeHeld = false, boostHeld2 = false, brakeHeld2 = false;
+  let p1Wins = 0, p2Wins = 0, splitWinnerText = '';
+  let slowMo = 0, shake = 0, camBank = 0;
+  function isSplitScreen() { return gameMode === 'split_1v1' || gameMode === 'split_ai'; }
+  function isOnlineGame() { return gameMode === 'online_1v1' || gameMode === 'online_ai'; }
+  let netPeer = null, netConn = null, netRole = 'none', netRoomCode = '', onlineMode = 'online_1v1';
+  let netTickAcc = 0, remoteBoostHeld = false, remoteBrakeHeld = false;
   let lookTarget = new THREE.Vector3();
   let wasBurning = false, calloutTimer = 0;
   let lastTime = 0, lastCountInt = 0;
@@ -1229,6 +1313,7 @@
     const initW = Math.max(2, container.clientWidth || window.innerWidth || 800);
     const initH = Math.max(2, container.clientHeight || window.innerHeight || 600);
     camera = new THREE.PerspectiveCamera(64, initW / initH, 0.5, 620);
+    camera2 = new THREE.PerspectiveCamera(64, initW / initH, 0.5, 620);
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.domElement.id = 'three-canvas';
     renderer.setSize(initW, initH);
@@ -1416,12 +1501,12 @@
     removeDisc();
   }
 
-  function createCycle(id, isPlayer, x, z, dirIdx, colorHex) {
+  function createCycle(id, isPlayer, x, z, dirIdx, colorHex, playerNum) {
     const mesh = buildCycleMesh(colorHex);
     mesh.position.set(x, 0, z);
     scene.add(mesh);
     return {
-      id, isPlayer, x, z, dir: dirIdx, color: colorHex,
+      id, isPlayer, playerNum: playerNum || (isPlayer ? 1 : 0), x, z, dir: dirIdx, color: colorHex,
       alive: true, speed: 36, baseSpeed: 36,
       nitro: 100, rubber: 3.2, maxRubber: 3.2, grinding: false, burningRubber: false,
       distSinceTurn: 10, bankAngle: 0,
@@ -1544,12 +1629,16 @@
 
     ov.classList.remove('hidden');
     hud.classList.add('menu-mode');
+    document.getElementById('split-divider').classList.remove('on');
+    document.getElementById('p1-tag').classList.remove('on');
+    document.getElementById('p2-tag').classList.remove('on');
+    document.getElementById('p2-hud').classList.remove('on');
     resBtn.style.display = isPause ? 'inline-block' : 'none';
 
     if (isPostMatch) {
       tel.style.display = 'block';
       document.getElementById('studio-tag').textContent = victory ? 'SECTOR VICTORY • TELEMETRY DEBRIEF' : 'USER TERMINATED • TELEMETRY DEBRIEF';
-      document.getElementById('modal-title').textContent = victory ? 'GRID CHAMPION' : 'DEREZZED';
+      document.getElementById('modal-title').textContent = ((isSplitScreen() || isOnlineGame()) && splitWinnerText) ? splitWinnerText : (victory ? 'GRID CHAMPION' : 'DEREZZED');
       document.getElementById('modal-sub').textContent = victory ? 'All rival programs eliminated from the Grid.' : 'Light Cycle impact detected. Adjust setup or launch immediate rematch.';
       document.getElementById('t-score').textContent = score;
       document.getElementById('t-kills').textContent = takedowns;
@@ -1573,6 +1662,206 @@
     }
   }
 
+  function setNetStatus(msg, cls) {
+    const el = document.getElementById('net-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'net-status' + (cls ? ' ' + cls : '');
+  }
+
+  function disconnectOnline() {
+    try { if (netConn) netConn.close(); } catch (e) {}
+    try { if (netPeer) netPeer.destroy(); } catch (e) {}
+    netConn = null; netPeer = null; netRole = 'none'; netRoomCode = '';
+    remoteBoostHeld = false; remoteBrakeHeld = false;
+    if (isOnlineGame()) gameMode = 'solo';
+    document.getElementById('net-pill').classList.remove('on');
+    document.getElementById('room-code-display').style.display = 'none';
+    document.getElementById('copy-code-btn').style.display = 'none';
+    document.getElementById('host-launch-row').style.display = 'none';
+    setNetStatus('Disconnected. Host a new room or join a friend anytime.', '');
+  }
+
+  function netSend(payload) {
+    if (netConn && netConn.open) {
+      try { netConn.send(payload); } catch (e) {}
+    }
+  }
+
+  function genRoomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let out = '';
+    for (let i = 0; i < 4; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  }
+
+  function wireNetConnection(conn) {
+    netConn = conn;
+    conn.on('open', () => {
+      document.getElementById('net-pill').classList.add('on');
+      document.getElementById('net-pill').textContent = netRole === 'host' ? 'ONLINE HOST' : 'ONLINE GUEST';
+      if (netRole === 'host') {
+        setNetStatus('Challenger connected! Click LAUNCH ONLINE MATCH when ready.', 'ok');
+        document.getElementById('host-launch-row').style.display = 'flex';
+        document.getElementById('online-start-btn').disabled = false;
+      } else {
+        setNetStatus('Connected to Host! Waiting for Host to launch match...', 'ok');
+        document.getElementById('host-launch-row').style.display = 'flex';
+        document.getElementById('online-start-btn').style.display = 'none';
+      }
+    });
+    conn.on('data', msg => handleNetMessage(msg));
+    conn.on('close', () => {
+      setNetStatus('Opponent disconnected.', 'err');
+      document.getElementById('net-pill').classList.remove('on');
+      netConn = null;
+      if (running && isOnlineGame()) {
+        running = false;
+        openMenu(false, true, true);
+      }
+    });
+    conn.on('error', () => {
+      setNetStatus('Connection error. Check network or try a new room code.', 'err');
+    });
+  }
+
+  function hostOnlineRoom() {
+    if (typeof Peer === 'undefined') {
+      setNetStatus('PeerJS library unavailable (offline or blocked). Try hosting on GitHub Pages.', 'err');
+      return;
+    }
+    disconnectOnline();
+    netRole = 'host';
+    netRoomCode = genRoomCode();
+    setNetStatus('Creating online room GRID-' + netRoomCode + '...', '');
+    try {
+      netPeer = new Peer('gridchase-' + netRoomCode, { debug: 0 });
+      netPeer.on('open', () => {
+        const codeEl = document.getElementById('room-code-display');
+        codeEl.textContent = 'GRID-' + netRoomCode;
+        codeEl.style.display = 'inline-block';
+        document.getElementById('copy-code-btn').style.display = 'inline-block';
+        document.getElementById('host-launch-row').style.display = 'flex';
+        document.getElementById('online-start-btn').style.display = 'inline-block';
+        document.getElementById('online-start-btn').disabled = true;
+        setNetStatus('Room live! Share code GRID-' + netRoomCode + ' with a friend to connect.', 'ok');
+      });
+      netPeer.on('connection', conn => {
+        if (netConn && netConn.open) { conn.close(); return; }
+        wireNetConnection(conn);
+      });
+      netPeer.on('error', err => {
+        setNetStatus('Online signaling error: ' + (err && err.type ? err.type : 'unavailable'), 'err');
+      });
+    } catch (e) {
+      setNetStatus('Could not initialize WebRTC Peer.', 'err');
+    }
+  }
+
+  function joinOnlineRoom() {
+    if (typeof Peer === 'undefined') {
+      setNetStatus('PeerJS library unavailable (offline or blocked).', 'err');
+      return;
+    }
+    const raw = (document.getElementById('join-code-input').value || '').trim().toUpperCase().replace(/^GRID-/, '');
+    if (raw.length < 3) {
+      setNetStatus('Enter a valid 4-character room code (e.g. 7K4M).', 'err');
+      return;
+    }
+    disconnectOnline();
+    netRole = 'guest';
+    netRoomCode = raw;
+    setNetStatus('Connecting to room GRID-' + raw + '...', '');
+    try {
+      netPeer = new Peer(undefined, { debug: 0 });
+      netPeer.on('open', () => {
+        const conn = netPeer.connect('gridchase-' + raw, { reliable: true });
+        wireNetConnection(conn);
+      });
+      netPeer.on('error', err => {
+        setNetStatus('Could not reach GRID-' + raw + ' (' + (err && err.type ? err.type : 'not found') + ').', 'err');
+      });
+    } catch (e) {
+      setNetStatus('WebRTC connection failed.', 'err');
+    }
+  }
+
+  function handleNetMessage(msg) {
+    if (!msg || typeof msg !== 'object') return;
+    if (netRole === 'host') {
+      if (msg.t === 'turn' && running && !paused && countdown <= 0 && cycles[1] && cycles[1].alive) {
+        queueTurn(cycles[1], msg.d === -1 ? -1 : 1);
+      } else if (msg.t === 'ctrl') {
+        remoteBoostHeld = !!msg.b;
+        remoteBrakeHeld = !!msg.k;
+      }
+      return;
+    }
+    // Guest message handlers
+    if (msg.t === 'start') {
+      gameMode = msg.mode;
+      arenaMode = msg.arena;
+      trailMode = msg.trail;
+      speedMult = msg.speed;
+      attractMode = false;
+      clearArena(); rebuildPillars();
+      score = 0; takedowns = 0; clutches = 0; discsGrabbed = 0; peakKmh = 0; matchTime = 0;
+      slowMo = 0; shake = 0; paused = false; camBank = 0; wasBurning = false; calloutTimer = 0;
+      document.getElementById('killfeed').innerHTML = '';
+      document.getElementById('callout').classList.remove('show');
+      document.getElementById('hud').classList.remove('menu-mode');
+      document.getElementById('overlay').classList.add('hidden');
+      cycles = msg.spawns.map((sp, i) => createCycle(msg.ids[i], i === 1, sp[0], sp[1], sp[2], msg.colors[i], i === 1 ? 2 : (i === 0 ? 1 : 0)));
+      cycles.forEach(c => startSegment(c));
+      applyGfxMode();
+      const me = cycles[1] || cycles[0];
+      const d = DIRS[me.dir];
+      camera.position.set(me.x - d.x * 13, 5.2, me.z - d.z * 13);
+      lookTarget.set(me.x + d.x * 16, 1.0, me.z + d.z * 16);
+      camera.lookAt(lookTarget);
+      countdown = 2.0; lastCountInt = 4; running = true;
+    } else if (msg.t === 'turn_ev' && cycles[msg.idx]) {
+      const c = cycles[msg.idx];
+      if (c.segments.length > 0) {
+        const cur = c.segments[c.segments.length - 1];
+        cur.x2 = msg.x; cur.z2 = msg.z; updateSegmentMesh(cur);
+      }
+      c.x = msg.x; c.z = msg.z; c.dir = msg.dir;
+      c.bankAngle = msg.delta * 0.46;
+      if (msg.idx === 1) { camBank = msg.delta * 0.09; playTone(msg.delta > 0 ? 640 : 520, 0.04, 'triangle', 0.07); }
+      startSegment(c);
+    } else if (msg.t === 'derez' && cycles[msg.idx]) {
+      const c = cycles[msg.idx];
+      c.alive = false; c.mesh.visible = false;
+      c.segments.forEach(seg => { if (seg.mesh) dissolvingWalls.push({ mesh: seg.mesh, life: 0.55 }); });
+      c.segments = [];
+      spawnShatter(msg.x, msg.z, c.color);
+      addFeed(`${c.id} DEREZZED`, c.color);
+      if (msg.killerIdx === 1) { takedowns++; showCallout(`TAKEDOWN! ${c.id} +500`, true); }
+    } else if (msg.t === 'state' && running) {
+      score = msg.sc;
+      countdown = msg.cd;
+      if (msg.disc && !activeDisc) { spawnIdentityDisc(); if (activeDisc) { activeDisc.x = msg.disc[0]; activeDisc.z = msg.disc[1]; activeDisc.mesh.position.set(msg.disc[0], 0, msg.disc[1]); } }
+      else if (!msg.disc && activeDisc) { removeDisc(); }
+      msg.c.forEach((st, i) => {
+        const c = cycles[i]; if (!c) return;
+        c.x += (st[0] - c.x) * 0.55;
+        c.z += (st[1] - c.z) * 0.55;
+        c.dir = st[2]; c.speed = st[3]; c.nitro = st[4]; c.rubber = st[5];
+        c.alive = !!st[6]; c.grinding = !!st[7]; c.burningRubber = !!st[8];
+        if (!c.alive) c.mesh.visible = false;
+      });
+    } else if (msg.t === 'end') {
+      running = false;
+      score = msg.sc; p1Wins = msg.p1w; p2Wins = msg.p2w;
+      splitWinnerText = msg.winnerText;
+      if (engGain) engGain.gain.value = 0;
+      if (grindGain) grindGain.gain.value = 0;
+      if (sparkGain) sparkGain.gain.value = 0;
+      openMenu(false, true, cycles[1] && cycles[1].alive);
+    }
+  }
+
   function resetGame() {
     attractMode = false;
     clearArena(); rebuildPillars();
@@ -1585,21 +1874,56 @@
     document.getElementById('hud').classList.remove('menu-mode');
 
     const rc = getRivalColors();
-    cycles = [
-      createCycle('YOU', true, 0, 58, 0, playerColor),
-      createCycle('NINJA POTATO', false, 0, -58, 2, rc[0]),
-      createCycle('MONARKI', false, -58, 0, 1, rc[1]),
-      createCycle('RINZLER-X', false, 58, 0, 3, rc[2])
-    ];
+    const split = isSplitScreen();
+    camBank2 = 0; splitWinnerText = '';
+    if (gameMode === 'split_1v1' || gameMode === 'online_1v1') {
+      cycles = [
+        createCycle(isOnlineGame() ? 'HOST (P1)' : 'PLAYER 1', true, 0, 58, 0, playerColor, 1),
+        createCycle(isOnlineGame() ? 'GUEST (P2)' : 'PLAYER 2', true, 0, -58, 2, rc[0], 2)
+      ];
+    } else if (gameMode === 'split_ai' || gameMode === 'online_ai') {
+      cycles = [
+        createCycle(isOnlineGame() ? 'HOST (P1)' : 'PLAYER 1', true, 0, 58, 0, playerColor, 1),
+        createCycle(isOnlineGame() ? 'GUEST (P2)' : 'PLAYER 2', true, 0, -58, 2, rc[0], 2),
+        createCycle('MONARKI', false, -58, 0, 1, rc[1], 0),
+        createCycle('RINZLER-X', false, 58, 0, 3, rc[2], 0)
+      ];
+    } else {
+      cycles = [
+        createCycle('YOU', true, 0, 58, 0, playerColor, 1),
+        createCycle('NINJA POTATO', false, 0, -58, 2, rc[0], 0),
+        createCycle('MONARKI', false, -58, 0, 1, rc[1], 0),
+        createCycle('RINZLER-X', false, 58, 0, 3, rc[2], 0)
+      ];
+    }
     cycles.forEach(c => startSegment(c));
     applyGfxMode();
+    document.getElementById('split-divider').classList.toggle('on', split);
+    document.getElementById('p1-tag').classList.toggle('on', split);
+    document.getElementById('p2-tag').classList.toggle('on', split);
+    document.getElementById('p2-hud').classList.toggle('on', split);
+    document.getElementById('p1-wins').textContent = p1Wins;
+    document.getElementById('p2-wins').textContent = p2Wins;
     const p = cycles[0];
     camera.position.set(p.x, 5.2, p.z + 13);
     lookTarget.set(p.x, 1.0, p.z - 16);
     camera.lookAt(lookTarget);
+    if (split && cycles[1] && camera2) {
+      const p2 = cycles[1];
+      camera2.position.set(p2.x, 5.2, p2.z - 13);
+      lookTarget2.set(p2.x, 1.0, p2.z + 16);
+      camera2.lookAt(lookTarget2);
+    }
     countdown = 2.0; lastCountInt = 4;
     running = true;
     document.getElementById('overlay').classList.add('hidden');
+    if (isOnlineGame() && netRole === 'host') {
+      netSend({
+        t: 'start', mode: gameMode, arena: arenaMode, trail: trailMode, speed: speedMult,
+        colors: cycles.map(c => c.color), ids: cycles.map(c => c.id),
+        spawns: cycles.map(c => [c.x, c.z, c.dir])
+      });
+    }
   }
 
   function queueTurn(c, delta) {
@@ -1621,8 +1945,13 @@
     }
     startSegment(c);
     if (c.isPlayer && !attractMode) {
-      camBank = delta * 0.09;
+      if (c.playerNum === 2) camBank2 = delta * 0.09;
+      else camBank = delta * 0.09;
       playTone(delta > 0 ? 640 : 520, 0.04, 'triangle', 0.07, delta > 0 ? 780 : 420);
+    }
+    if (isOnlineGame() && netRole === 'host') {
+      const idx = cycles.indexOf(c);
+      if (idx >= 0) netSend({ t: 'turn_ev', idx, x: c.x, z: c.z, dir: c.dir, delta });
     }
   }
 
@@ -1888,8 +2217,29 @@
       }
     }
 
-    const p = cycles[0];
-    cycles.forEach(c => {
+    const isGuest = isOnlineGame() && netRole === 'guest';
+    const p = isGuest ? (cycles[1] || cycles[0]) : cycles[0];
+    if (isGuest) {
+      cycles.forEach(c => {
+        if (!c.alive) return;
+        const d = DIRS[c.dir];
+        const stepDist = c.speed * dt;
+        c.x += d.x * stepDist; c.z += d.z * stepDist;
+        c.bankAngle += (0 - c.bankAngle) * Math.min(1, dt * 10);
+        c.mesh.position.set(c.x, 0, c.z);
+        c.mesh.rotation.y = c.dir === 0 ? 0 : c.dir === 1 ? -Math.PI / 2 : c.dir === 2 ? Math.PI : Math.PI / 2;
+        c.mesh.rotation.z = c.bankAngle;
+        if (c.mesh.userData.frontWheel) {
+          c.mesh.userData.frontWheel.rotation.x -= stepDist * 1.4;
+          c.mesh.userData.rearWheel.rotation.x -= stepDist * 1.4;
+        }
+        if (c.segments.length > 0) {
+          const curSeg = c.segments[c.segments.length - 1];
+          curSeg.x2 = c.x; curSeg.z2 = c.z;
+          updateSegmentMesh(curSeg);
+        }
+      });
+    } else cycles.forEach(c => {
       if (!c.alive) return;
       c.burningRubber = false;
       if (c.turnQueue.length > 0 && c.distSinceTurn >= 1.9) executeTurn(c, c.turnQueue.shift());
@@ -1907,8 +2257,10 @@
       c.grinding = nearWall;
       if (nearWall && Math.random() < 0.5) spawnSpark(c.x, c.z, 0x38bdf8);
 
-      // Skill-based Nitro energy: drains on Space boost, supercharges on wall-grind!
-      const usingNitro = c.isPlayer && !attractMode && boostHeld && c.nitro > 2;
+      // Skill-based Nitro energy: P1 uses Space/Shift, P2 uses Up/Enter + Down
+      const cBoost = c.playerNum === 2 ? (isOnlineGame() ? remoteBoostHeld : boostHeld2) : boostHeld;
+      const cBrake = c.playerNum === 2 ? (isOnlineGame() ? remoteBrakeHeld : brakeHeld2) : brakeHeld;
+      const usingNitro = c.isPlayer && !attractMode && cBoost && c.nitro > 2;
       if (usingNitro) {
         c.nitro = Math.max(0, c.nitro - dt * 36);
         if (gfxMode !== 'clean' && Math.random() < 0.75) {
@@ -1920,7 +2272,7 @@
 
       let targetSpeed = c.baseSpeed;
       if (usingNitro) targetSpeed = 59;
-      else if (c.isPlayer && !attractMode && brakeHeld) targetSpeed = 20;
+      else if (c.isPlayer && !attractMode && cBrake) targetSpeed = 20;
       if (nearWall) targetSpeed += 14;
       targetSpeed *= speedMult;
       c.speed += (targetSpeed - c.speed) * Math.min(1, dt * 11);
@@ -1978,16 +2330,19 @@
           });
           c.segments = [];
           spawnShatter(c.x, c.z, c.color);
+          if (isOnlineGame() && netRole === 'host') {
+            netSend({ t: 'derez', idx: cycles.indexOf(c), killerIdx: hitOwner ? cycles.indexOf(hitOwner) : -1, x: c.x, z: c.z });
+          }
           if (!attractMode) {
-            if (hitOwner && hitOwner.isPlayer && !c.isPlayer) {
+            if (hitOwner && hitOwner.isPlayer && hitOwner !== c) {
               takedowns++; score += 500;
-              showCallout(`TAKEDOWN! ${c.id} +500`, true);
-              addFeed(`YOU DEREZZED ${c.id} (+500)`, c.color);
+              showCallout(`${hitOwner.id} DEREZZED ${c.id}!`, true);
+              addFeed(`${hitOwner.id} DEREZZED ${c.id} (+500)`, c.color);
               playTone(520, 0.2, 'square', 0.09, 880);
             } else {
               addFeed(`${c.id} DEREZZED`, c.color);
             }
-            if (c.isPlayer) { banner.classList.add('danger', 'show'); banner.textContent = 'USER TERMINATED'; }
+            if (c.isPlayer && !isSplitScreen()) { banner.classList.add('danger', 'show'); banner.textContent = 'USER TERMINATED'; }
           }
           return;
         }
@@ -2022,12 +2377,7 @@
       const t = performance.now() * 0.00018;
       camera.position.set(Math.cos(t) * 82, 34 + Math.sin(t * 1.5) * 6, Math.sin(t) * 82);
       camera.lookAt(0, 2, 0);
-      if (cycles.filter(c => c.alive).length <= 1) document.querySelectorAll('.swatch').forEach(sw => {
-      const match = parseInt(sw.dataset.color, 16) === playerColor;
-      sw.classList.toggle('selected', match);
-      if (match) document.getElementById('livery-caption').innerHTML = `Active Livery: <strong>${sw.dataset.name}</strong> — Rival colors auto-balance for contrast.`;
-    });
-    startAttractDemo();
+      if (cycles.filter(c => c.alive).length <= 1) startAttractDemo();
       renderSpeedLines(0);
       return;
     }
@@ -2055,6 +2405,37 @@
     }
     camera.lookAt(lookTarget);
     if (camMode === 'low' || camMode === 'fpv') camera.rotateZ(camBank);
+    camBank2 += (0 - camBank2) * Math.min(1, rawDt * 10);
+    if (isSplitScreen() && cycles[1] && camera2) {
+      const p2 = cycles[1];
+      const d2 = DIRS[p2.dir];
+      const fov2 = 62 + Math.max(0, (p2.speed - 36) * 0.48);
+      camera2.fov += (fov2 - camera2.fov) * Math.min(1, rawDt * 8);
+      camera2.updateProjectionMatrix();
+      if (camMode === 'low') {
+        const pull2 = 11 + Math.max(0, (p2.speed - 36) * 0.085);
+        camera2.position.lerp(new THREE.Vector3(p2.x - d2.x * pull2 + sx, 4.5 + sy, p2.z - d2.z * pull2), snapAlpha);
+        lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 19, 1.0, p2.z + d2.z * 19), snapAlpha);
+      } else if (camMode === 'high') {
+        camera2.position.lerp(new THREE.Vector3(p2.x - d2.x * 18 + sx, 16 + sy, p2.z - d2.z * 18), snapAlpha);
+        lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 12, 0.5, p2.z + d2.z * 12), snapAlpha);
+      } else if (camMode === 'fpv') {
+        camera2.position.lerp(new THREE.Vector3(p2.x + d2.x * 0.9, 1.52, p2.z + d2.z * 0.9), Math.min(1, rawDt * 42));
+        lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 28, 1.32, p2.z + d2.z * 28), Math.min(1, rawDt * 34));
+      } else {
+        camera2.position.lerp(new THREE.Vector3(p2.x + 30 + sx, 38 + sy, p2.z + 30), snapAlpha);
+        lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 8, 0, p2.z + d2.z * 8), snapAlpha);
+      }
+      camera2.lookAt(lookTarget2);
+      if (camMode === 'low' || camMode === 'fpv') camera2.rotateZ(camBank2);
+
+      document.getElementById('p2-speed-num').textContent = Math.round(p2.speed * 4.2);
+      document.getElementById('p2-speed-fill').style.width = Math.min(100, (p2.speed / 85) * 100) + '%';
+      document.getElementById('p2-nitro-num').textContent = Math.round(p2.nitro) + '%';
+      document.getElementById('p2-nitro-fill').style.width = p2.nitro + '%';
+      document.getElementById('p2-rubber-num').textContent = p2.rubber.toFixed(1);
+      document.getElementById('p2-rubber-fill').style.width = (p2.rubber / p2.maxRubber * 100) + '%';
+    }
 
     if (engOsc1 && engOsc2 && engFilter && !muted) {
       engOsc1.frequency.value = 48 + p.speed * 1.7;
@@ -2102,9 +2483,36 @@
 
     renderSpeedLines(p.speed);
 
-    if ((!p.alive || aliveList.length <= 1) && slowMo <= 0.05) {
+    if (isOnlineGame() && netRole === 'host') {
+      netTickAcc += rawDt;
+      if (netTickAcc >= 0.033) {
+        netTickAcc = 0;
+        netSend({
+          t: 'state', sc: score, cd: countdown,
+          disc: activeDisc ? [activeDisc.x, activeDisc.z] : null,
+          c: cycles.map(c => [c.x, c.z, c.dir, c.speed, c.nitro, c.rubber, c.alive ? 1 : 0, c.grinding ? 1 : 0, c.burningRubber ? 1 : 0])
+        });
+      }
+    }
+
+    const isTwoHuman = isSplitScreen() || isOnlineGame();
+    const splitEnd = isGuest ? false : (isTwoHuman
+      ? (aliveList.length <= 1 || (!cycles[0].alive && !cycles[1].alive))
+      : (!p.alive || aliveList.length <= 1));
+    if (splitEnd && slowMo <= 0.05) {
       running = false;
-      if (p.alive) wins++;
+      if (isTwoHuman) {
+        const p1A = cycles[0] && cycles[0].alive;
+        const p2A = cycles[1] && cycles[1].alive;
+        if (p1A && !p2A) { p1Wins++; splitWinnerText = isOnlineGame() ? 'HOST (P1) VICTORY' : 'PLAYER 1 VICTORY'; }
+        else if (p2A && !p1A) { p2Wins++; splitWinnerText = isOnlineGame() ? 'GUEST (P2) VICTORY' : 'PLAYER 2 VICTORY'; }
+        else { splitWinnerText = 'GRID DRAW / AI WINS'; }
+        document.getElementById('p1-wins').textContent = p1Wins;
+        document.getElementById('p2-wins').textContent = p2Wins;
+        if (isOnlineGame() && netRole === 'host') {
+          netSend({ t: 'end', winnerText: splitWinnerText, sc: score, kills: takedowns, p1w: p1Wins, p2w: p2Wins });
+        }
+      } else if (p.alive) { wins++; }
       try {
         localStorage.setItem('tron_gc3d_best', String(bestScore));
         localStorage.setItem('tron_gc3d_wins', String(wins));
@@ -2159,6 +2567,11 @@
     else {
       document.getElementById('overlay').classList.add('hidden');
       document.getElementById('hud').classList.remove('menu-mode');
+      const sp = isSplitScreen();
+      document.getElementById('split-divider').classList.toggle('on', sp);
+      document.getElementById('p1-tag').classList.toggle('on', sp);
+      document.getElementById('p2-tag').classList.toggle('on', sp);
+      document.getElementById('p2-hud').classList.toggle('on', sp);
     }
   }
 
@@ -2177,7 +2590,35 @@
     if (viewportHidden || contextLost || document.hidden) return;
     step(dt);
     if (renderer && scene && camera) {
-      try { renderer.render(scene, camera); } catch (e) {}
+      try {
+        const c = document.getElementById('viewport');
+        const w = c.clientWidth, h = c.clientHeight;
+        if (isSplitScreen() && !attractMode && camera2 && w >= 2 && h >= 2) {
+          const halfW = Math.floor(w / 2);
+          renderer.setScissorTest(true);
+          // Left Viewport: Player 1
+          camera.aspect = halfW / h;
+          camera.updateProjectionMatrix();
+          renderer.setViewport(0, 0, halfW, h);
+          renderer.setScissor(0, 0, halfW, h);
+          renderer.render(scene, camera);
+          // Right Viewport: Player 2
+          camera2.aspect = (w - halfW) / h;
+          camera2.updateProjectionMatrix();
+          renderer.setViewport(halfW, 0, w - halfW, h);
+          renderer.setScissor(halfW, 0, w - halfW, h);
+          renderer.render(scene, camera2);
+          renderer.setScissorTest(false);
+        } else {
+          renderer.setScissorTest(false);
+          if (w >= 2 && h >= 2) {
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setViewport(0, 0, w, h);
+          }
+          renderer.render(scene, camera);
+        }
+      } catch (e) {}
     }
   }
 
@@ -2210,14 +2651,32 @@
     if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { togglePause(); return; }
     if (e.key === 'c' || e.key === 'C') { cycleCamera(); return; }
     if (!running || paused || attractMode || countdown > 0) return;
-    if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft' || e.key === 'z' || e.key === 'Z') queueTurn(cycles[0], -1);
-    if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight' || e.key === 'x' || e.key === 'X') queueTurn(cycles[0], 1);
+    if (isOnlineGame() && netRole === 'guest') {
+      if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft' || e.key === 'z' || e.key === 'Z') netSend({ t: 'turn', d: -1 });
+      if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight' || e.key === 'x' || e.key === 'X') netSend({ t: 'turn', d: 1 });
+      if (e.code === 'Space') { e.preventDefault(); boostHeld = true; netSend({ t: 'ctrl', b: true, k: brakeHeld }); }
+      if (e.key === 'Shift') { brakeHeld = true; netSend({ t: 'ctrl', b: boostHeld, k: true }); }
+      return;
+    }
+    if (isSplitScreen()) {
+      if (e.key === 'a' || e.key === 'A' || e.key === 'z' || e.key === 'Z') queueTurn(cycles[0], -1);
+      if (e.key === 'd' || e.key === 'D' || e.key === 'x' || e.key === 'X') queueTurn(cycles[0], 1);
+      if (e.key === 'ArrowLeft' && cycles[1]) { e.preventDefault(); queueTurn(cycles[1], -1); }
+      if (e.key === 'ArrowRight' && cycles[1]) { e.preventDefault(); queueTurn(cycles[1], 1); }
+      if (e.key === 'ArrowUp' || e.key === 'Enter' || e.key === '/') { e.preventDefault(); boostHeld2 = true; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); brakeHeld2 = true; }
+    } else {
+      if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft' || e.key === 'z' || e.key === 'Z') queueTurn(cycles[0], -1);
+      if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight' || e.key === 'x' || e.key === 'X') queueTurn(cycles[0], 1);
+    }
     if (e.code === 'Space') { e.preventDefault(); boostHeld = true; }
     if (e.key === 'Shift') brakeHeld = true;
   });
   window.addEventListener('keyup', e => {
-    if (e.code === 'Space') boostHeld = false;
-    if (e.key === 'Shift') brakeHeld = false;
+    if (e.code === 'Space') { boostHeld = false; if (isOnlineGame() && netRole === 'guest') netSend({ t: 'ctrl', b: false, k: brakeHeld }); }
+    if (e.key === 'Shift') { brakeHeld = false; if (isOnlineGame() && netRole === 'guest') netSend({ t: 'ctrl', b: boostHeld, k: false }); }
+    if (e.key === 'ArrowUp' || e.key === 'Enter' || e.key === '/') boostHeld2 = false;
+    if (e.key === 'ArrowDown') brakeHeld2 = false;
   });
 
   window.onload = function() {
@@ -2276,6 +2735,28 @@
     });
     document.getElementById('snap-select').addEventListener('change', e => { camSnap = parseFloat(e.target.value); });
     document.getElementById('trail-select').addEventListener('change', e => { trailMode = e.target.value; });
+    document.getElementById('mode-select').addEventListener('change', e => { gameMode = e.target.value; });
+    document.getElementById('online-mode-select').addEventListener('change', e => { onlineMode = e.target.value; });
+    document.getElementById('host-btn').addEventListener('click', () => { initAudio(); hostOnlineRoom(); });
+    document.getElementById('join-btn').addEventListener('click', () => { initAudio(); joinOnlineRoom(); });
+    document.getElementById('net-disconnect-btn').addEventListener('click', disconnectOnline);
+    document.getElementById('online-start-btn').addEventListener('click', () => {
+      if (netRole === 'host' && netConn && netConn.open) {
+        initAudio(); gameMode = onlineMode; resetGame();
+      }
+    });
+    document.getElementById('copy-code-btn').addEventListener('click', () => {
+      const code = 'GRID-' + netRoomCode;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).catch(() => {});
+      } else {
+        const ta = document.createElement('textarea'); ta.value = code;
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+      }
+      setNetStatus('Copied ' + code + ' to clipboard!', 'ok');
+    });
     document.getElementById('arena-select').addEventListener('change', e => { arenaMode = e.target.value; if (attractMode) startAttractDemo(); });
     document.getElementById('ai-select').addEventListener('change', e => { aiDiff = e.target.value; });
     document.getElementById('speed-select').addEventListener('change', e => { speedMult = parseFloat(e.target.value); });
