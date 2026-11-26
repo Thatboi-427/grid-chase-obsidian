@@ -1,16 +1,16 @@
 # Grid Chase: Obsidian
 
-A 3D WebGL Light Cycle combat arena built with Three.js and Web Audio.
+A 3D WebGL Light Cycle combat arena built with Three.js, GLSL shaders, PeerJS WebRTC, and Web Audio.
+
+## Modes
+- **Solo vs. AI (4 Cycles):** Battle Veteran, Apex, or Rookie AI across 3 arenas (Open Grid, 4-Pillar Foundry, Reactor Core).
+- **2-Player Local Split-Screen:** Dual 3D viewports (`1v1 Duel` or `2P + 2 AI`) with independent cameras, vignettes, and P2 Cycle Garage livery.
+- **4-Player Online PvP (Free WebRTC PeerJS):** Host a `GRID-XXXX` room for up to 4 players with a live 4-slot roster, **Fill Empty Slots with AI** toggle, Ready-Up checkmarks, and live Ping (ms).
 
 ## Controls
-- **A / Z / Left Arrow**: Turn Left (double-bind supported)
-- **D / X / Right Arrow**: Turn Right (double-bind supported)
-- **Space**: Nitro Boost (recharges rapidly while wall-grinding)
-- **Shift**: Brake-Bait
-- **C**: Cycle Camera (Low Chase / High Chase / Isometric / First-Person Visor)
-- **P / Esc**: Pause & Settings
-- **R / Enter**: Instant Rematch
+- **Player 1 / Solo / Online:** `A`/`D` (or `Z`/`X` double-binds) to turn • `Space` Nitro • `Left Shift` Brake-Bait • `C` Camera (Low / High / Iso / First-Person Visor)
+- **Player 2 (Split-Screen):** `←`/`→` to turn • `↑`/`Right Shift` Nitro • `↓` Brake-Bait • `V` P2 Camera
+- **Global:** `Tab` Spectate Survivors • `M` Mute • `P`/`Esc` Pause • `R` Rematch
 
-## Hosting on GitHub Pages
-1. Upload `index.html` and `README.md` to the root of a public GitHub repository.
-2. Open **Settings → Pages**, set **Source** to **Deploy from a branch** (`main`, `/ (root)`), and click **Save**.
+## Live Game
+Play live on GitHub Pages: https://thatboi-427.github.io/grid-chase-obsidian/
