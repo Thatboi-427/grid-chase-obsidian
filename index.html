@@ -27,9 +27,48 @@
   }
   #split-divider.on { display: block; }
   #p2-hud {
-    position: absolute; bottom: 14px; right: 244px; z-index: 6; pointer-events: none; display: none;
+    position: absolute; bottom: 14px; right: 14px; z-index: 6; pointer-events: none; display: none;
   }
   #p2-hud.on { display: block; }
+  /* U1: Clean Split-Screen layout — P1 gauges bottom-left, Radar centered, P2 gauges bottom-right, touch pad hidden */
+  #hud.split-active .touch-pad { display: none !important; }
+  #hud.split-active .bottom-bar { justify-content: flex-start; }
+  #hud.split-active #radar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: 108px; height: 108px; }
+  /* U2: Independent Left/Right Split-Screen Vignettes */
+  #vig-p1, #vig-p2 { position: absolute; top: 0; bottom: 0; width: 50%; pointer-events: none; z-index: 5; transition: box-shadow 0.1s; display: none; }
+  #vig-p1 { left: 0; } #vig-p2 { right: 0; }
+  #vig-p1.on, #vig-p2.on { display: block; }
+  #vig-p1.grind, #vig-p2.grind { box-shadow: inset 0 0 70px rgba(56, 189, 248, 0.45); }
+  #vig-p1.danger, #vig-p2.danger { box-shadow: inset 0 0 90px rgba(244, 63, 94, 0.65); }
+  /* G4: 3D Projected Floating Callsign Nameplates */
+  #nameplates { position: absolute; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
+  .np-tag {
+    position: absolute; transform: translate(-50%, -100%);
+    font-size: 10px; font-weight: 900; letter-spacing: 0.08em; padding: 2px 6px;
+    border-radius: 4px; background: rgba(3, 6, 14, 0.78); border: 1px solid currentColor;
+    white-space: nowrap; text-shadow: 0 0 6px rgba(0,0,0,0.9);
+  }
+  /* G1: Spectator Banner */
+  #spec-bar {
+    position: absolute; top: 72px; left: 50%; transform: translateX(-50%); z-index: 7;
+    background: rgba(5, 10, 22, 0.88); border: 1px solid #38bdf8; color: #38bdf8;
+    padding: 5px 14px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: 0.12em;
+    display: none; pointer-events: none;
+  }
+  #spec-bar.on { display: block; }
+  /* N1 + Q5: 4-Slot Online Lobby Roster */
+  .roster-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
+  .roster-slot {
+    background: rgba(2, 6, 16, 0.9); border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 6px; padding: 6px 8px; display: flex; justify-content: space-between; align-items: center; font-size: 11px;
+  }
+  .roster-slot.filled { border-color: rgba(56, 189, 248, 0.55); }
+  .roster-slot.ready { border-color: #10b981; }
+  .slot-badge { font-size: 9.5px; font-weight: 900; padding: 1px 5px; border-radius: 3px; background: #1e293b; color: #94a3b8; }
+  .slot-badge.ok { background: #10b981; color: #020612; }
+  .slot-badge.ai { background: #6366f1; color: #fff; }
+  .vol-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #cbd5e1; }
+  .vol-row input[type=range] { flex: 1; accent-color: #facc15; }
   .p-tag {
     position: absolute; top: 68px; padding: 3px 9px; border-radius: 5px;
     font-size: 10px; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase;
@@ -181,8 +220,12 @@
   <canvas id="fx-canvas"></canvas>
   <div id="crt-overlay"></div>
   <div id="split-divider"></div>
-  <div id="p1-tag" class="p-tag">P1 • A/D + SPACE (WINS: <span id="p1-wins">0</span>)</div>
-  <div id="p2-tag" class="p-tag">P2 • ARROWS + ENTER (WINS: <span id="p2-wins">0</span>)</div>
+  <div id="p1-tag" class="p-tag">P1 • A/D + SPC • CAM(C) (WINS: <span id="p1-wins">0</span>)</div>
+  <div id="p2-tag" class="p-tag">P2 • ←/→ + ↑/R-SHF • CAM(V) (WINS: <span id="p2-wins">0</span>)</div>
+  <div id="vig-p1"></div>
+  <div id="vig-p2"></div>
+  <div id="nameplates"></div>
+  <div id="spec-bar">SPECTATING: <span id="spec-name">---</span> • PRESS TAB TO SWITCH</div>
   <div id="p2-hud" class="hud-card gauges" style="border-color:rgba(56,189,248,0.5);">
     <div class="gauge-head"><span style="color:#38bdf8;">P2 VELOCITY</span><span class="meter-big" id="p2-speed-num" style="color:#38bdf8;">0</span></div>
     <div class="bar-wrap"><div id="p2-speed-fill" class="bar-fill" style="background:linear-gradient(90deg,#0284c7,#38bdf8,#fff);"></div></div>
@@ -207,6 +250,7 @@
           <span>ALIVE <strong id="alive">4</strong>/4</span>
           <span>WINS <strong id="wins">0</strong></span>
           <span>BEST <strong id="best">0</strong></span>
+          <span id="ping-wrap" style="display:none;">PING <strong id="ping-ms" style="color:#10b981;">--</strong></span>
         </div>
       </div>
       <div class="hud-card quick-actions">
@@ -304,23 +348,47 @@
               <option value="1.65">Hyper</option>
             </select>
           </div>
+          <div class="cfg-item">
+            <label for="series-select">Match Format</label>
+            <select id="series-select">
+              <option value="1">Single Round</option>
+              <option value="3">Series: First to 3</option>
+              <option value="5">Series: First to 5</option>
+            </select>
+          </div>
+          <div class="cfg-item">
+            <label for="spawn-select">Spawn Pattern</label>
+            <select id="spawn-select">
+              <option value="offset">Offset Tactical Duel</option>
+              <option value="classic">Classic Cross</option>
+              <option value="parallel">Parallel Sprint</option>
+            </select>
+          </div>
         </div>
       </div>
 
       <div class="tab-panel" id="tab-online">
         <div class="net-box">
-          <div style="font-size:10px;font-weight:800;letter-spacing:0.12em;color:#facc15;text-transform:uppercase;">1. Host an Online Room (Free WebRTC P2P)</div>
+          <div style="font-size:10px;font-weight:800;letter-spacing:0.12em;color:#facc15;text-transform:uppercase;">1. Host a 4-Player Online Room (Free WebRTC P2P)</div>
           <div class="net-row">
-            <select id="online-mode-select" aria-label="Online Match Type">
-              <option value="online_1v1">1v1 Online Duel</option>
-              <option value="online_ai">2P Online + 2 AI Rivals</option>
+            <select id="online-mode-select" aria-label="Online Room Size">
+              <option value="online_4p">Up to 4 Players</option>
+              <option value="online_1v1">1v1 Duel (2 Max)</option>
+            </select>
+            <select id="ai-fill-select" aria-label="Fill Empty Slots with AI">
+              <option value="on">Empty Slots: Fill with AI</option>
+              <option value="off">Empty Slots: Humans Only</option>
             </select>
             <button id="host-btn" style="background:#facc15;color:#050810;border:none;">Host Room</button>
-            <span id="room-code-display" class="net-code" style="display:none;">----</span>
-            <button id="copy-code-btn" style="display:none;">Copy Code</button>
           </div>
+          <div class="net-row" id="host-code-row" style="display:none;">
+            <span id="room-code-display" class="net-code">----</span>
+            <button id="copy-code-btn">Copy Code</button>
+          </div>
+          <div id="lobby-roster" class="roster-grid" style="display:none;"></div>
           <div class="net-row" id="host-launch-row" style="display:none;">
             <button id="online-start-btn" class="primary-btn" style="padding:8px 18px;font-size:11px;">LAUNCH ONLINE MATCH</button>
+            <button id="ready-btn" style="display:none;background:#10b981;color:#020612;border:none;">READY ✓</button>
             <button id="net-disconnect-btn" style="border-color:#f43f5e;color:#fda4af;">Disconnect</button>
           </div>
         </div>
@@ -330,7 +398,7 @@
             <input id="join-code-input" class="net-input" type="text" maxlength="10" placeholder="ROOM CODE" />
             <button id="join-btn" style="background:#38bdf8;color:#020612;border:none;">Join Room</button>
           </div>
-          <div id="net-status" class="net-status">Offline — Host a room or enter a friend's 4-letter code to play online via GitHub Pages.</div>
+          <div id="net-status" class="net-status">Offline — Host a 4-player room or enter a friend's 4-letter code.</div>
         </div>
       </div>
 
@@ -342,7 +410,19 @@
           <div class="swatch" data-color="0xf8fafc" data-name="Quorra White"><div class="swatch-dot" style="background:#f8fafc;"></div><span>Quorra</span></div>
           <div class="swatch" data-color="0x10b981" data-name="Grid Emerald"><div class="swatch-dot" style="background:#10b981;"></div><span>Emerald</span></div>
         </div>
-        <div class="studio-sub" id="livery-caption" style="margin-bottom:10px;">Active Livery: <strong>CLU Gold</strong> — Rival colors auto-balance for contrast.</div>
+        <div class="studio-sub" id="livery-caption" style="margin-bottom:10px;">P1 Livery: <strong>CLU Gold</strong></div>
+        <div style="font-size:10px;font-weight:800;letter-spacing:0.1em;color:#38bdf8;text-transform:uppercase;margin-bottom:6px;text-align:left;">Player 2 Split-Screen Livery</div>
+        <div class="swatches" id="livery-p2-swatches">
+          <div class="swatch" data-color="0xfacc15" data-name="CLU Gold"><div class="swatch-dot" style="background:#facc15;"></div><span>Gold</span></div>
+          <div class="swatch selected" data-color="0x38bdf8" data-name="Flynn Cyan"><div class="swatch-dot" style="background:#38bdf8;"></div><span>Cyan</span></div>
+          <div class="swatch" data-color="0xf43f5e" data-name="Rinzler Red"><div class="swatch-dot" style="background:#f43f5e;"></div><span>Red</span></div>
+          <div class="swatch" data-color="0xf8fafc" data-name="Quorra White"><div class="swatch-dot" style="background:#f8fafc;"></div><span>Quorra</span></div>
+          <div class="swatch" data-color="0x10b981" data-name="Grid Emerald"><div class="swatch-dot" style="background:#10b981;"></div><span>Emerald</span></div>
+        </div>
+        <div class="cfg-item" style="margin-top:8px;">
+          <label for="callsign-input">Your Callsign (Max 10 Chars)</label>
+          <input id="callsign-input" class="net-input" style="width:100%;letter-spacing:0.1em;" type="text" maxlength="10" placeholder="PLAYER 1" />
+        </div>
       </div>
 
       <div class="tab-panel" id="tab-graphics">
@@ -379,6 +459,18 @@
               <option value="off">Classic Pure (Off)</option>
             </select>
           </div>
+          <div class="cfg-item">
+            <label for="tags-select">3D Floating Callsigns</label>
+            <select id="tags-select">
+              <option value="on">Show Above Bikes</option>
+              <option value="off">Hidden</option>
+            </select>
+          </div>
+          <div class="cfg-item">
+            <label>Audio Mix (M to Mute)</label>
+            <div class="vol-row"><span>BGM</span><input id="bgm-vol" type="range" min="0" max="100" value="65" /></div>
+            <div class="vol-row"><span>SFX</span><input id="sfx-vol" type="range" min="0" max="100" value="80" /></div>
+          </div>
         </div>
       </div>
 
@@ -387,7 +479,7 @@
         <button class="secondary-btn" id="resume-btn" style="display:none;">RESUME MATCH</button>
       </div>
       <div class="controls-strip">
-        P1: <kbd>A</kbd>/<kbd>D</kbd> (<kbd>Z</kbd>/<kbd>X</kbd>) + <kbd>Space</kbd> Nitro + <kbd>Shift</kbd> Brake • 2P: <kbd>←</kbd>/<kbd>→</kbd> + <kbd>↑</kbd>/<kbd>Enter</kbd> Nitro + <kbd>↓</kbd> Brake • <kbd>C</kbd> Cam • <kbd>P</kbd> Pause
+        P1: <kbd>A</kbd>/<kbd>D</kbd> (<kbd>Z</kbd>/<kbd>X</kbd>) + <kbd>Space</kbd> Nitro • 2P: <kbd>←</kbd>/<kbd>→</kbd> + <kbd>↑</kbd>/<kbd>R-Shift</kbd> Nitro • <kbd>C</kbd>/<kbd>V</kbd> Cams • <kbd>Tab</kbd> Spectate • <kbd>M</kbd> Mute
       </div>
     </div>
   </div>
@@ -408,16 +500,25 @@
   let running = false, paused = false, attractMode = true, countdown = 0, viewportHidden = false, contextLost = false;
   let score = 0, wins = 0, bestScore = 0, takedowns = 0, clutches = 0, discsGrabbed = 0, peakKmh = 0, matchTime = 0;
   let muted = false, musicOn = true, gfxMode = 'ultra', discsEnabled = true;
-  let playerColor = 0xfacc15;
-  let camMode = 'low', camSnap = 22, trailMode = 'forever', arenaMode = 'open', aiDiff = 'veteran', speedMult = 1;
+  let playerColor = 0xfacc15, player2Color = 0x38bdf8, playerName = 'PLAYER 1';
+  let camMode = 'low', camMode2 = 'low', camSnap = 22, trailMode = 'forever', arenaMode = 'open', aiDiff = 'veteran', speedMult = 1;
+  let seriesTarget = 1, spawnPattern = 'offset', showTags = true;
+  let bgmVol = 0.65, sfxVol = 0.80, roundKills = 0;
   let gameMode = 'solo', camera2 = null, lookTarget2 = new THREE.Vector3(), camBank2 = 0;
   let boostHeld = false, brakeHeld = false, boostHeld2 = false, brakeHeld2 = false;
-  let p1Wins = 0, p2Wins = 0, splitWinnerText = '';
-  let slowMo = 0, shake = 0, camBank = 0;
+  let p1Wins = 0, p2Wins = 0, seriesScores = [0, 0, 0, 0], splitWinnerText = '';
+  let slowMo = 0, shake = 0, camBank = 0, postMatchLockout = 0;
+  let specIdx = -1, mySlot = 0;
   function isSplitScreen() { return gameMode === 'split_1v1' || gameMode === 'split_ai'; }
-  function isOnlineGame() { return gameMode === 'online_1v1' || gameMode === 'online_ai'; }
-  let netPeer = null, netConn = null, netRole = 'none', netRoomCode = '', onlineMode = 'online_1v1';
-  let netTickAcc = 0, remoteBoostHeld = false, remoteBrakeHeld = false;
+  function isOnlineGame() { return gameMode === 'online_1v1' || gameMode === 'online_4p'; }
+  let netPeer = null, netConn = null, netConns = [], netRole = 'none', netRoomCode = '', onlineMode = 'online_4p', fillEmptyWithAI = true;
+  let lobbySlots = [
+    { type: 'host', name: 'PLAYER 1', color: 0xfacc15, ready: true, conn: null, lastPong: 0, boost: false, brake: false },
+    { type: 'open', name: 'OPEN SLOT', color: 0x38bdf8, ready: false, conn: null, lastPong: 0, boost: false, brake: false },
+    { type: 'open', name: 'OPEN SLOT', color: 0xa855f7, ready: false, conn: null, lastPong: 0, boost: false, brake: false },
+    { type: 'open', name: 'OPEN SLOT', color: 0xf43f5e, ready: false, conn: null, lastPong: 0, boost: false, brake: false }
+  ];
+  let guestReady = false, netTickAcc = 0, pingAcc = 0, currentPing = 0, lastHostPong = 0;
   let lookTarget = new THREE.Vector3();
   let wasBurning = false, calloutTimer = 0;
   let lastTime = 0, lastCountInt = 0;
@@ -782,6 +883,10 @@
     wins = parseInt(localStorage.getItem('tron_gc3d_wins') || '0', 10) || 0;
     const savedCol = localStorage.getItem('tron_gc3d_livery');
     if (savedCol) playerColor = parseInt(savedCol, 16) || 0xfacc15;
+    const savedCol2 = localStorage.getItem('tron_gc3d_livery2');
+    if (savedCol2) player2Color = parseInt(savedCol2, 16) || 0x38bdf8;
+    const savedName = localStorage.getItem('tron_gc3d_callsign');
+    if (savedName) playerName = savedName.slice(0, 10).toUpperCase();
   } catch (e) {}
 
   // Procedural Tron: Legacy Dynamic Synth + Arcade SFX
@@ -843,7 +948,7 @@
         f.type = 'lowpass';
         f.frequency.setValueAtTime((step % 4 === 0 ? 540 : 280) + spdBoost, t);
         f.frequency.exponentialRampToValueAtTime(110, t + 0.16);
-        g.gain.setValueAtTime(0.032, t);
+        g.gain.setValueAtTime(0.045 * bgmVol, t);
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.17);
         o.connect(f); f.connect(g); g.connect(audioCtx.destination);
         o.start(t); o.stop(t + 0.18);
@@ -854,7 +959,7 @@
           ko.type = 'sine';
           ko.frequency.setValueAtTime(110, t);
           ko.frequency.exponentialRampToValueAtTime(34, t + 0.12);
-          kg.gain.setValueAtTime(0.06, t);
+          kg.gain.setValueAtTime(0.085 * bgmVol, t);
           kg.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
           ko.connect(kg); kg.connect(audioCtx.destination);
           ko.start(t); ko.stop(t + 0.14);
@@ -871,7 +976,7 @@
       o.type = type || 'square';
       o.frequency.setValueAtTime(freq, t);
       if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
-      g.gain.setValueAtTime(vol || 0.08, t);
+      g.gain.setValueAtTime((vol || 0.08) * sfxVol, t);
       g.gain.exponentialRampToValueAtTime(0.001, t + dur);
       o.connect(g); g.connect(audioCtx.destination);
       o.start(t); o.stop(t + dur);
@@ -1669,22 +1774,74 @@
     el.className = 'net-status' + (cls ? ' ' + cls : '');
   }
 
-  function disconnectOnline() {
-    try { if (netConn) netConn.close(); } catch (e) {}
-    try { if (netPeer) netPeer.destroy(); } catch (e) {}
-    netConn = null; netPeer = null; netRole = 'none'; netRoomCode = '';
-    remoteBoostHeld = false; remoteBrakeHeld = false;
-    if (isOnlineGame()) gameMode = 'solo';
-    document.getElementById('net-pill').classList.remove('on');
-    document.getElementById('room-code-display').style.display = 'none';
-    document.getElementById('copy-code-btn').style.display = 'none';
-    document.getElementById('host-launch-row').style.display = 'none';
-    setNetStatus('Disconnected. Host a new room or join a friend anytime.', '');
+  function maxOnlineSlots() { return onlineMode === 'online_1v1' ? 2 : 4; }
+
+  function renderLobbyRoster() {
+    const box = document.getElementById('lobby-roster');
+    if (!box) return;
+    if (netRole === 'none') { box.style.display = 'none'; return; }
+    box.style.display = 'grid';
+    const maxS = maxOnlineSlots();
+    let html = '';
+    for (let i = 0; i < maxS; i++) {
+      const sl = lobbySlots[i];
+      let badge = '<span class="slot-badge">OPEN</span>';
+      let label = 'Waiting...';
+      let cls = 'roster-slot';
+      if (sl.type === 'host') {
+        label = `P1: ${sl.name}`;
+        badge = '<span class="slot-badge ok">HOST</span>';
+        cls += ' filled ready';
+      } else if (sl.type === 'guest') {
+        label = `P${i + 1}: ${sl.name}`;
+        badge = sl.ready ? '<span class="slot-badge ok">READY ✓</span>' : '<span class="slot-badge">JOINED</span>';
+        cls += sl.ready ? ' filled ready' : ' filled';
+      } else if (fillEmptyWithAI) {
+        label = `P${i + 1}: AI BOT`;
+        badge = '<span class="slot-badge ai">AI FILL</span>';
+      }
+      html += `<div class="${cls}"><span>${label}</span>${badge}</div>`;
+    }
+    box.innerHTML = html;
+    if (netRole === 'host') {
+      const guests = lobbySlots.filter(sl => sl.type === 'guest').length;
+      const btn = document.getElementById('online-start-btn');
+      if (btn) btn.disabled = guests < 1;
+    }
   }
 
-  function netSend(payload) {
-    if (netConn && netConn.open) {
-      try { netConn.send(payload); } catch (e) {}
+  function broadcastRoster() {
+    if (netRole !== 'host') return;
+    const summary = lobbySlots.map(sl => ({ type: sl.type, name: sl.name, color: sl.color, ready: sl.ready }));
+    netBroadcast({ t: 'roster', slots: summary, maxS: maxOnlineSlots(), aiFill: fillEmptyWithAI });
+  }
+
+  function disconnectOnline() {
+    netConns.forEach(c => { try { c.close(); } catch (e) {} });
+    try { if (netConn) netConn.close(); } catch (e) {}
+    try { if (netPeer) netPeer.destroy(); } catch (e) {}
+    netConns = []; netConn = null; netPeer = null; netRole = 'none'; netRoomCode = ''; mySlot = 0; guestReady = false;
+    for (let i = 1; i < 4; i++) {
+      lobbySlots[i].type = 'open'; lobbySlots[i].name = 'OPEN SLOT'; lobbySlots[i].ready = false;
+      lobbySlots[i].conn = null; lobbySlots[i].boost = false; lobbySlots[i].brake = false;
+    }
+    if (isOnlineGame()) gameMode = 'solo';
+    document.getElementById('net-pill').classList.remove('on');
+    document.getElementById('ping-wrap').style.display = 'none';
+    document.getElementById('host-code-row').style.display = 'none';
+    document.getElementById('lobby-roster').style.display = 'none';
+    document.getElementById('host-launch-row').style.display = 'none';
+    setNetStatus('Disconnected. Host a 4-player room or join a friend anytime.', '');
+  }
+
+  function netSendTo(conn, payload) {
+    if (conn && conn.open) { try { conn.send(payload); } catch (e) {} }
+  }
+  function netBroadcast(payload) {
+    if (netRole === 'host') {
+      netConns.forEach(c => netSendTo(c, payload));
+    } else if (netConn && netConn.open) {
+      netSendTo(netConn, payload);
     }
   }
 
@@ -1695,126 +1852,176 @@
     return out;
   }
 
-  function wireNetConnection(conn) {
-    netConn = conn;
-    conn.on('open', () => {
-      document.getElementById('net-pill').classList.add('on');
-      document.getElementById('net-pill').textContent = netRole === 'host' ? 'ONLINE HOST' : 'ONLINE GUEST';
-      if (netRole === 'host') {
-        setNetStatus('Challenger connected! Click LAUNCH ONLINE MATCH when ready.', 'ok');
-        document.getElementById('host-launch-row').style.display = 'flex';
-        document.getElementById('online-start-btn').disabled = false;
-      } else {
-        setNetStatus('Connected to Host! Waiting for Host to launch match...', 'ok');
-        document.getElementById('host-launch-row').style.display = 'flex';
-        document.getElementById('online-start-btn').style.display = 'none';
-      }
-    });
-    conn.on('data', msg => handleNetMessage(msg));
-    conn.on('close', () => {
-      setNetStatus('Opponent disconnected.', 'err');
-      document.getElementById('net-pill').classList.remove('on');
-      netConn = null;
-      if (running && isOnlineGame()) {
-        running = false;
-        openMenu(false, true, true);
-      }
-    });
-    conn.on('error', () => {
-      setNetStatus('Connection error. Check network or try a new room code.', 'err');
-    });
-  }
-
   function hostOnlineRoom() {
     if (typeof Peer === 'undefined') {
       setNetStatus('PeerJS library unavailable (offline or blocked). Try hosting on GitHub Pages.', 'err');
       return;
     }
     disconnectOnline();
-    netRole = 'host';
+    netRole = 'host'; mySlot = 0;
     netRoomCode = genRoomCode();
-    setNetStatus('Creating online room GRID-' + netRoomCode + '...', '');
+    lobbySlots[0].name = playerName || 'HOST';
+    lobbySlots[0].color = playerColor;
+    setNetStatus('Creating 4-player room GRID-' + netRoomCode + '...', '');
     try {
       netPeer = new Peer('gridchase-' + netRoomCode, { debug: 0 });
       netPeer.on('open', () => {
-        const codeEl = document.getElementById('room-code-display');
-        codeEl.textContent = 'GRID-' + netRoomCode;
-        codeEl.style.display = 'inline-block';
-        document.getElementById('copy-code-btn').style.display = 'inline-block';
+        document.getElementById('room-code-display').textContent = 'GRID-' + netRoomCode;
+        document.getElementById('host-code-row').style.display = 'flex';
         document.getElementById('host-launch-row').style.display = 'flex';
         document.getElementById('online-start-btn').style.display = 'inline-block';
         document.getElementById('online-start-btn').disabled = true;
-        setNetStatus('Room live! Share code GRID-' + netRoomCode + ' with a friend to connect.', 'ok');
+        document.getElementById('ready-btn').style.display = 'none';
+        renderLobbyRoster();
+        setNetStatus('Room live! Share code GRID-' + netRoomCode + ' (up to ' + maxOnlineSlots() + ' players).', 'ok');
       });
       netPeer.on('connection', conn => {
-        if (netConn && netConn.open) { conn.close(); return; }
-        wireNetConnection(conn);
+        const maxS = maxOnlineSlots();
+        const freeIdx = lobbySlots.findIndex((sl, idx) => idx > 0 && idx < maxS && sl.type === 'open');
+        if (freeIdx === -1) {
+          conn.on('open', () => { netSendTo(conn, { t: 'full' }); setTimeout(() => { try { conn.close(); } catch (e) {} }, 150); });
+          return;
+        }
+        const rc = getRivalColors();
+        lobbySlots[freeIdx].type = 'guest';
+        lobbySlots[freeIdx].name = 'PLAYER ' + (freeIdx + 1);
+        lobbySlots[freeIdx].color = rc[freeIdx - 1] || ALL_COLORS[freeIdx % ALL_COLORS.length];
+        lobbySlots[freeIdx].ready = false;
+        lobbySlots[freeIdx].conn = conn;
+        lobbySlots[freeIdx].lastPong = performance.now();
+        netConns.push(conn);
+        conn.on('open', () => {
+          document.getElementById('net-pill').classList.add('on');
+          document.getElementById('net-pill').textContent = 'ONLINE HOST';
+          document.getElementById('ping-wrap').style.display = 'inline';
+          netSendTo(conn, { t: 'welcome', slot: freeIdx, name: lobbySlots[freeIdx].name });
+          renderLobbyRoster();
+          broadcastRoster();
+          setNetStatus('Player ' + (freeIdx + 1) + ' connected! Launch anytime or wait for more players.', 'ok');
+        });
+        conn.on('data', msg => handleHostMessage(freeIdx, conn, msg));
+        conn.on('close', () => {
+          lobbySlots[freeIdx].type = 'open'; lobbySlots[freeIdx].name = 'OPEN SLOT';
+          lobbySlots[freeIdx].ready = false; lobbySlots[freeIdx].conn = null;
+          lobbySlots[freeIdx].boost = false; lobbySlots[freeIdx].brake = false;
+          netConns = netConns.filter(c => c !== conn);
+          renderLobbyRoster(); broadcastRoster();
+          addFeed(`PLAYER ${freeIdx + 1} DISCONNECTED`, 0xf43f5e);
+          if (netConns.length === 0) setNetStatus('All guests disconnected. Waiting for players...', 'err');
+        });
       });
       netPeer.on('error', err => {
         setNetStatus('Online signaling error: ' + (err && err.type ? err.type : 'unavailable'), 'err');
       });
-    } catch (e) {
-      setNetStatus('Could not initialize WebRTC Peer.', 'err');
-    }
+    } catch (e) { setNetStatus('Could not initialize WebRTC Peer.', 'err'); }
   }
 
   function joinOnlineRoom() {
-    if (typeof Peer === 'undefined') {
-      setNetStatus('PeerJS library unavailable (offline or blocked).', 'err');
-      return;
-    }
+    if (typeof Peer === 'undefined') { setNetStatus('PeerJS library unavailable (offline or blocked).', 'err'); return; }
     const raw = (document.getElementById('join-code-input').value || '').trim().toUpperCase().replace(/^GRID-/, '');
-    if (raw.length < 3) {
-      setNetStatus('Enter a valid 4-character room code (e.g. 7K4M).', 'err');
-      return;
-    }
+    if (raw.length < 3) { setNetStatus('Enter a valid 4-character room code (e.g. 7K4M).', 'err'); return; }
     disconnectOnline();
-    netRole = 'guest';
-    netRoomCode = raw;
+    netRole = 'guest'; netRoomCode = raw; guestReady = false;
     setNetStatus('Connecting to room GRID-' + raw + '...', '');
     try {
       netPeer = new Peer(undefined, { debug: 0 });
       netPeer.on('open', () => {
         const conn = netPeer.connect('gridchase-' + raw, { reliable: true });
-        wireNetConnection(conn);
+        netConn = conn;
+        lastHostPong = performance.now();
+        conn.on('open', () => {
+          document.getElementById('net-pill').classList.add('on');
+          document.getElementById('net-pill').textContent = 'ONLINE GUEST';
+          document.getElementById('ping-wrap').style.display = 'inline';
+          document.getElementById('host-launch-row').style.display = 'flex';
+          document.getElementById('online-start-btn').style.display = 'none';
+          document.getElementById('ready-btn').style.display = 'inline-block';
+          document.getElementById('ready-btn').textContent = 'READY UP';
+          netSendTo(conn, { t: 'hello', name: playerName || 'GUEST' });
+          setNetStatus('Connected to GRID-' + raw + '! Click READY UP and wait for Host.', 'ok');
+        });
+        conn.on('data', msg => handleGuestMessage(msg));
+        conn.on('close', () => {
+          setNetStatus('Disconnected from Host.', 'err');
+          document.getElementById('net-pill').classList.remove('on');
+          document.getElementById('ping-wrap').style.display = 'none';
+          netConn = null;
+          if (running && isOnlineGame()) { running = false; openMenu(false, true, false); }
+        });
+        conn.on('error', () => setNetStatus('Connection error with Host.', 'err'));
       });
-      netPeer.on('error', err => {
-        setNetStatus('Could not reach GRID-' + raw + ' (' + (err && err.type ? err.type : 'not found') + ').', 'err');
-      });
-    } catch (e) {
-      setNetStatus('WebRTC connection failed.', 'err');
+      netPeer.on('error', err => setNetStatus('Could not reach GRID-' + raw + ' (' + (err && err.type ? err.type : 'not found') + ').', 'err'));
+    } catch (e) { setNetStatus('WebRTC connection failed.', 'err'); }
+  }
+
+  function handleHostMessage(slotIdx, conn, msg) {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.t === 'hello') {
+      if (msg.name) lobbySlots[slotIdx].name = String(msg.name).slice(0, 10).toUpperCase();
+      renderLobbyRoster(); broadcastRoster();
+    } else if (msg.t === 'ready') {
+      lobbySlots[slotIdx].ready = !!msg.val;
+      renderLobbyRoster(); broadcastRoster();
+    } else if (msg.t === 'ping') {
+      lobbySlots[slotIdx].lastPong = performance.now();
+      netSendTo(conn, { t: 'pong', ts: msg.ts });
+    } else if (msg.t === 'pong') {
+      lobbySlots[slotIdx].lastPong = performance.now();
+      currentPing = Math.max(1, Math.round(performance.now() - msg.ts));
+      document.getElementById('ping-ms').textContent = currentPing + 'ms';
+    } else if (msg.t === 'turn' && running && !paused && countdown <= 0) {
+      const cyc = cycles.find(c => c.slotIdx === slotIdx);
+      if (cyc && cyc.alive) queueTurn(cyc, msg.d === -1 ? -1 : 1);
+    } else if (msg.t === 'ctrl') {
+      lobbySlots[slotIdx].boost = !!msg.b;
+      lobbySlots[slotIdx].brake = !!msg.k;
+    } else if (msg.t === 'rematch_req') {
+      showCallout(`${lobbySlots[slotIdx].name} REQUESTS REMATCH!`, true);
+      addFeed(`${lobbySlots[slotIdx].name} REQUESTED REMATCH`, lobbySlots[slotIdx].color);
     }
   }
 
-  function handleNetMessage(msg) {
+  function handleGuestMessage(msg) {
     if (!msg || typeof msg !== 'object') return;
-    if (netRole === 'host') {
-      if (msg.t === 'turn' && running && !paused && countdown <= 0 && cycles[1] && cycles[1].alive) {
-        queueTurn(cycles[1], msg.d === -1 ? -1 : 1);
-      } else if (msg.t === 'ctrl') {
-        remoteBoostHeld = !!msg.b;
-        remoteBrakeHeld = !!msg.k;
-      }
-      return;
-    }
-    // Guest message handlers
-    if (msg.t === 'start') {
-      gameMode = msg.mode;
-      arenaMode = msg.arena;
-      trailMode = msg.trail;
-      speedMult = msg.speed;
-      attractMode = false;
+    if (msg.t === 'full') {
+      setNetStatus('Room is full (4/4 players).', 'err');
+      disconnectOnline();
+    } else if (msg.t === 'welcome') {
+      mySlot = msg.slot;
+    } else if (msg.t === 'roster') {
+      onlineMode = msg.maxS === 2 ? 'online_1v1' : 'online_4p';
+      fillEmptyWithAI = !!msg.aiFill;
+      msg.slots.forEach((sl, i) => {
+        if (lobbySlots[i]) { lobbySlots[i].type = sl.type; lobbySlots[i].name = sl.name; lobbySlots[i].color = sl.color; lobbySlots[i].ready = sl.ready; }
+      });
+      renderLobbyRoster();
+    } else if (msg.t === 'ping') {
+      lastHostPong = performance.now();
+      netSendTo(netConn, { t: 'pong', ts: msg.ts });
+    } else if (msg.t === 'pong') {
+      lastHostPong = performance.now();
+      currentPing = Math.max(1, Math.round(performance.now() - msg.ts));
+      document.getElementById('ping-ms').textContent = currentPing + 'ms';
+    } else if (msg.t === 'start') {
+      gameMode = msg.mode; arenaMode = msg.arena; trailMode = msg.trail; speedMult = msg.speed;
+      seriesTarget = msg.series || 1;
+      attractMode = false; specIdx = -1; roundKills = 0;
       clearArena(); rebuildPillars();
       score = 0; takedowns = 0; clutches = 0; discsGrabbed = 0; peakKmh = 0; matchTime = 0;
       slowMo = 0; shake = 0; paused = false; camBank = 0; wasBurning = false; calloutTimer = 0;
       document.getElementById('killfeed').innerHTML = '';
       document.getElementById('callout').classList.remove('show');
-      document.getElementById('hud').classList.remove('menu-mode');
+      document.getElementById('spec-bar').classList.remove('on');
+      document.getElementById('hud').classList.remove('menu-mode', 'split-active');
       document.getElementById('overlay').classList.add('hidden');
-      cycles = msg.spawns.map((sp, i) => createCycle(msg.ids[i], i === 1, sp[0], sp[1], sp[2], msg.colors[i], i === 1 ? 2 : (i === 0 ? 1 : 0)));
+      cycles = msg.spawns.map((sp, i) => {
+        const c = createCycle(msg.ids[i], msg.slots[i] === mySlot, sp[0], sp[1], sp[2], msg.colors[i], msg.slots[i] === mySlot ? 1 : 0);
+        c.slotIdx = msg.slots[i];
+        return c;
+      });
       cycles.forEach(c => startSegment(c));
       applyGfxMode();
-      const me = cycles[1] || cycles[0];
+      const me = cycles.find(c => c.slotIdx === mySlot) || cycles[0];
       const d = DIRS[me.dir];
       camera.position.set(me.x - d.x * 13, 5.2, me.z - d.z * 13);
       lookTarget.set(me.x + d.x * 16, 1.0, me.z + d.z * 16);
@@ -1828,8 +2035,12 @@
       }
       c.x = msg.x; c.z = msg.z; c.dir = msg.dir;
       c.bankAngle = msg.delta * 0.46;
-      if (msg.idx === 1) { camBank = msg.delta * 0.09; playTone(msg.delta > 0 ? 640 : 520, 0.04, 'triangle', 0.07); }
+      if (c.slotIdx === mySlot) { camBank = msg.delta * 0.09; playTone(msg.delta > 0 ? 640 : 520, 0.04, 'triangle', 0.07); }
       startSegment(c);
+    } else if (msg.t === 'disc_grab') {
+      removeDisc();
+      if (msg.slotIdx === mySlot) { discsGrabbed++; showCallout('IDENTITY DISC +300 • FULL NITRO', false); }
+      playTone(660, 0.16, 'triangle', 0.09, 1320);
     } else if (msg.t === 'derez' && cycles[msg.idx]) {
       const c = cycles[msg.idx];
       c.alive = false; c.mesh.visible = false;
@@ -1837,29 +2048,70 @@
       c.segments = [];
       spawnShatter(msg.x, msg.z, c.color);
       addFeed(`${c.id} DEREZZED`, c.color);
-      if (msg.killerIdx === 1) { takedowns++; showCallout(`TAKEDOWN! ${c.id} +500`, true); }
+      if (msg.killerSlot === mySlot) {
+        takedowns++; roundKills++;
+        const ks = roundKills >= 3 ? 'TRIPLE DEREZ! +500' : roundKills === 2 ? 'DOUBLE DEREZ! +500' : `TAKEDOWN! ${c.id} +500`;
+        showCallout(ks, true);
+      }
     } else if (msg.t === 'state' && running) {
-      score = msg.sc;
-      countdown = msg.cd;
+      score = msg.sc; countdown = msg.cd;
       if (msg.disc && !activeDisc) { spawnIdentityDisc(); if (activeDisc) { activeDisc.x = msg.disc[0]; activeDisc.z = msg.disc[1]; activeDisc.mesh.position.set(msg.disc[0], 0, msg.disc[1]); } }
       else if (!msg.disc && activeDisc) { removeDisc(); }
       msg.c.forEach((st, i) => {
         const c = cycles[i]; if (!c) return;
-        c.x += (st[0] - c.x) * 0.55;
-        c.z += (st[1] - c.z) * 0.55;
+        c.x += (st[0] - c.x) * 0.55; c.z += (st[1] - c.z) * 0.55;
         c.dir = st[2]; c.speed = st[3]; c.nitro = st[4]; c.rubber = st[5];
         c.alive = !!st[6]; c.grinding = !!st[7]; c.burningRubber = !!st[8];
         if (!c.alive) c.mesh.visible = false;
       });
     } else if (msg.t === 'end') {
-      running = false;
-      score = msg.sc; p1Wins = msg.p1w; p2Wins = msg.p2w;
-      splitWinnerText = msg.winnerText;
+      running = false; postMatchLockout = 0.8;
+      score = msg.sc; splitWinnerText = msg.winnerText;
       if (engGain) engGain.gain.value = 0;
       if (grindGain) grindGain.gain.value = 0;
       if (sparkGain) sparkGain.gain.value = 0;
-      openMenu(false, true, cycles[1] && cycles[1].alive);
+      document.getElementById('spec-bar').classList.remove('on');
+      const me = cycles.find(c => c.slotIdx === mySlot);
+      openMenu(false, true, me && me.alive);
     }
+  }
+
+  function getSpawnCoords(count) {
+    if (spawnPattern === 'offset') {
+      return [[ -24, 58, 0 ], [ 24, -58, 2 ], [ -58, -22, 1 ], [ 58, 22, 3 ]].slice(0, count);
+    }
+    if (spawnPattern === 'parallel') {
+      return [[ -24, 62, 0 ], [ 24, 62, 0 ], [ -54, 62, 0 ], [ 54, 62, 0 ]].slice(0, count);
+    }
+    return [[ 0, 58, 0 ], [ 0, -58, 2 ], [ -58, 0, 1 ], [ 58, 0, 3 ]].slice(0, count);
+  }
+
+  function updateNameplates(w, h) {
+    const container = document.getElementById('nameplates');
+    if (!container) return;
+    if (!showTags || !running || attractMode || paused) { container.innerHTML = ''; return; }
+    const split = isSplitScreen();
+    let html = '';
+    const v = new THREE.Vector3();
+    cycles.forEach(c => {
+      if (!c.alive) return;
+      const hex = '#' + c.color.toString(16).padStart(6, '0');
+      const cams = split ? [[camera, 0, w * 0.5], [camera2, w * 0.5, w * 0.5]] : [[camera, 0, w]];
+      cams.forEach(([cam, ox, vw], ci) => {
+        if (!cam) return;
+        // Skip own label when in FPV or low chase for cleanliness
+        if (!split && ((isOnlineGame() && netRole === 'guest' && c.slotIdx === mySlot) || (!isOnlineGame() && c.playerNum === 1))) return;
+        if (split && ((ci === 0 && c.playerNum === 1) || (ci === 1 && c.playerNum === 2))) return;
+        v.set(c.x, 2.6, c.z).project(cam);
+        if (v.z > 1) return;
+        const sx = ox + (v.x * 0.5 + 0.5) * vw;
+        const sy = (-v.y * 0.5 + 0.5) * h;
+        if (sx >= ox + 8 && sx <= ox + vw - 8 && sy >= 20 && sy <= h - 20) {
+          html += `<div class="np-tag" style="left:${sx.toFixed(0)}px;top:${sy.toFixed(0)}px;color:${hex};">${c.id}</div>`;
+        }
+      });
+    });
+    container.innerHTML = html;
   }
 
   function resetGame() {
@@ -1873,54 +2125,81 @@
     document.getElementById('callout').classList.remove('show');
     document.getElementById('hud').classList.remove('menu-mode');
 
-    const rc = getRivalColors();
+    const rc = getRivalColors().filter(c => c !== player2Color);
     const split = isSplitScreen();
-    camBank2 = 0; splitWinnerText = '';
-    if (gameMode === 'split_1v1' || gameMode === 'online_1v1') {
+    camBank2 = 0; splitWinnerText = ''; specIdx = -1; roundKills = 0;
+    document.getElementById('spec-bar').classList.remove('on');
+    const p1Label = (playerName || 'PLAYER 1').toUpperCase();
+    const p2Col = player2Color === playerColor ? (rc[0] || 0x38bdf8) : player2Color;
+    const sp = getSpawnCoords(4);
+
+    if (isOnlineGame() && netRole === 'host') {
+      const maxS = maxOnlineSlots();
+      cycles = [];
+      for (let i = 0; i < maxS; i++) {
+        const sl = lobbySlots[i];
+        if (sl.type === 'host') {
+          const c = createCycle(p1Label, true, sp[i][0], sp[i][1], sp[i][2], playerColor, 1);
+          c.slotIdx = 0; cycles.push(c);
+        } else if (sl.type === 'guest') {
+          const c = createCycle(sl.name, true, sp[i][0], sp[i][1], sp[i][2], sl.color, i + 1);
+          c.slotIdx = i; cycles.push(c);
+        } else if (fillEmptyWithAI) {
+          const aiNames = ['CLU-BOT', 'MONARKI', 'RINZLER-X', 'SENTRY'];
+          const c = createCycle(aiNames[i] + ' [AI]', false, sp[i][0], sp[i][1], sp[i][2], sl.color, 0);
+          c.slotIdx = -1; cycles.push(c);
+        }
+      }
+    } else if (gameMode === 'split_1v1') {
       cycles = [
-        createCycle(isOnlineGame() ? 'HOST (P1)' : 'PLAYER 1', true, 0, 58, 0, playerColor, 1),
-        createCycle(isOnlineGame() ? 'GUEST (P2)' : 'PLAYER 2', true, 0, -58, 2, rc[0], 2)
+        createCycle(p1Label, true, sp[0][0], sp[0][1], sp[0][2], playerColor, 1),
+        createCycle('PLAYER 2', true, sp[1][0], sp[1][1], sp[1][2], p2Col, 2)
       ];
-    } else if (gameMode === 'split_ai' || gameMode === 'online_ai') {
+    } else if (gameMode === 'split_ai') {
       cycles = [
-        createCycle(isOnlineGame() ? 'HOST (P1)' : 'PLAYER 1', true, 0, 58, 0, playerColor, 1),
-        createCycle(isOnlineGame() ? 'GUEST (P2)' : 'PLAYER 2', true, 0, -58, 2, rc[0], 2),
-        createCycle('MONARKI', false, -58, 0, 1, rc[1], 0),
-        createCycle('RINZLER-X', false, 58, 0, 3, rc[2], 0)
+        createCycle(p1Label, true, sp[0][0], sp[0][1], sp[0][2], playerColor, 1),
+        createCycle('PLAYER 2', true, sp[1][0], sp[1][1], sp[1][2], p2Col, 2),
+        createCycle('MONARKI [AI]', false, sp[2][0], sp[2][1], sp[2][2], rc[0] || 0xa855f7, 0),
+        createCycle('RINZLER [AI]', false, sp[3][0], sp[3][1], sp[3][2], rc[1] || 0xf43f5e, 0)
       ];
     } else {
       cycles = [
-        createCycle('YOU', true, 0, 58, 0, playerColor, 1),
-        createCycle('NINJA POTATO', false, 0, -58, 2, rc[0], 0),
-        createCycle('MONARKI', false, -58, 0, 1, rc[1], 0),
-        createCycle('RINZLER-X', false, 58, 0, 3, rc[2], 0)
+        createCycle(p1Label, true, sp[0][0], sp[0][1], sp[0][2], playerColor, 1),
+        createCycle('NINJA [AI]', false, sp[1][0], sp[1][1], sp[1][2], p2Col, 0),
+        createCycle('MONARKI [AI]', false, sp[2][0], sp[2][1], sp[2][2], rc[0] || 0xa855f7, 0),
+        createCycle('RINZLER [AI]', false, sp[3][0], sp[3][1], sp[3][2], rc[1] || 0xf43f5e, 0)
       ];
     }
     cycles.forEach(c => startSegment(c));
     applyGfxMode();
+    document.getElementById('hud').classList.toggle('split-active', split);
     document.getElementById('split-divider').classList.toggle('on', split);
     document.getElementById('p1-tag').classList.toggle('on', split);
     document.getElementById('p2-tag').classList.toggle('on', split);
     document.getElementById('p2-hud').classList.toggle('on', split);
+    document.getElementById('vig-p1').classList.toggle('on', split);
+    document.getElementById('vig-p2').classList.toggle('on', split);
     document.getElementById('p1-wins').textContent = p1Wins;
     document.getElementById('p2-wins').textContent = p2Wins;
     const p = cycles[0];
-    camera.position.set(p.x, 5.2, p.z + 13);
-    lookTarget.set(p.x, 1.0, p.z - 16);
+    const pd = DIRS[p.dir];
+    camera.position.set(p.x - pd.x * 13, 5.2, p.z - pd.z * 13);
+    lookTarget.set(p.x + pd.x * 16, 1.0, p.z + pd.z * 16);
     camera.lookAt(lookTarget);
     if (split && cycles[1] && camera2) {
-      const p2 = cycles[1];
-      camera2.position.set(p2.x, 5.2, p2.z - 13);
-      lookTarget2.set(p2.x, 1.0, p2.z + 16);
+      const p2 = cycles[1], d2 = DIRS[p2.dir];
+      camera2.position.set(p2.x - d2.x * 13, 5.2, p2.z - d2.z * 13);
+      lookTarget2.set(p2.x + d2.x * 16, 1.0, p2.z + d2.z * 16);
       camera2.lookAt(lookTarget2);
     }
     countdown = 2.0; lastCountInt = 4;
     running = true;
     document.getElementById('overlay').classList.add('hidden');
     if (isOnlineGame() && netRole === 'host') {
-      netSend({
-        t: 'start', mode: gameMode, arena: arenaMode, trail: trailMode, speed: speedMult,
+      netBroadcast({
+        t: 'start', mode: gameMode, arena: arenaMode, trail: trailMode, speed: speedMult, series: seriesTarget,
         colors: cycles.map(c => c.color), ids: cycles.map(c => c.id),
+        slots: cycles.map(c => c.slotIdx),
         spawns: cycles.map(c => [c.x, c.z, c.dir])
       });
     }
@@ -1951,7 +2230,7 @@
     }
     if (isOnlineGame() && netRole === 'host') {
       const idx = cycles.indexOf(c);
-      if (idx >= 0) netSend({ t: 'turn_ev', idx, x: c.x, z: c.z, dir: c.dir, delta });
+      if (idx >= 0) netBroadcast({ t: 'turn_ev', idx, x: c.x, z: c.z, dir: c.dir, delta });
     }
   }
 
@@ -2217,10 +2496,45 @@
       }
     }
 
+    if (postMatchLockout > 0) postMatchLockout = Math.max(0, postMatchLockout - rawDt);
+    // N3: 2-Second Ping/Pong Heartbeat
+    if (isOnlineGame() && netRole !== 'none') {
+      pingAcc += rawDt;
+      if (pingAcc >= 2.0) {
+        pingAcc = 0;
+        const ts = performance.now();
+        if (netRole === 'host') {
+          netConns.forEach(c => netSendTo(c, { t: 'ping', ts }));
+        } else if (netConn && netConn.open) {
+          netSendTo(netConn, { t: 'ping', ts });
+          if (lastHostPong > 0 && ts - lastHostPong > 6500) {
+            setNetStatus('Host connection timed out (>6s).', 'err');
+            disconnectOnline();
+          }
+        }
+      }
+    }
+
     const isGuest = isOnlineGame() && netRole === 'guest';
-    const p = isGuest ? (cycles[1] || cycles[0]) : cycles[0];
+    const myCyc = isGuest ? (cycles.find(c => c.slotIdx === mySlot) || cycles[0]) : cycles[0];
+    // G1: Spectator Chase Cam if local player derezzed while 2+ bikes remain alive
+    let p = myCyc;
+    const liveSurvivors = cycles.filter(c => c.alive);
+    if (!myCyc.alive && liveSurvivors.length >= 1 && !isSplitScreen()) {
+      if (specIdx < 0 || !cycles[specIdx] || !cycles[specIdx].alive) specIdx = cycles.indexOf(liveSurvivors[0]);
+      p = cycles[specIdx] || myCyc;
+      document.getElementById('spec-bar').classList.add('on');
+      document.getElementById('spec-name').textContent = p.id;
+    } else {
+      document.getElementById('spec-bar').classList.remove('on');
+    }
+
     if (isGuest) {
       cycles.forEach(c => {
+        if (c.alive && gfxMode !== 'clean') {
+          if (c.grinding && Math.random() < 0.45) spawnSpark(c.x, c.z, 0x38bdf8);
+          if (c.burningRubber) spawnSpark(c.x, c.z, 0xf43f5e);
+        }
         if (!c.alive) return;
         const d = DIRS[c.dir];
         const stepDist = c.speed * dt;
@@ -2258,8 +2572,8 @@
       if (nearWall && Math.random() < 0.5) spawnSpark(c.x, c.z, 0x38bdf8);
 
       // Skill-based Nitro energy: P1 uses Space/Shift, P2 uses Up/Enter + Down
-      const cBoost = c.playerNum === 2 ? (isOnlineGame() ? remoteBoostHeld : boostHeld2) : boostHeld;
-      const cBrake = c.playerNum === 2 ? (isOnlineGame() ? remoteBrakeHeld : brakeHeld2) : brakeHeld;
+      const cBoost = (isOnlineGame() && c.slotIdx > 0) ? lobbySlots[c.slotIdx].boost : (c.playerNum === 2 ? boostHeld2 : boostHeld);
+      const cBrake = (isOnlineGame() && c.slotIdx > 0) ? lobbySlots[c.slotIdx].brake : (c.playerNum === 2 ? brakeHeld2 : brakeHeld);
       const usingNitro = c.isPlayer && !attractMode && cBoost && c.nitro > 2;
       if (usingNitro) {
         c.nitro = Math.max(0, c.nitro - dt * 36);
@@ -2289,9 +2603,10 @@
         c.nitro = 100; c.rubber = c.maxRubber;
         if (c.isPlayer && !attractMode) {
           score += 300; discsGrabbed++;
-          showCallout('IDENTITY DISC +300 • FULL NITRO', false);
+          if (c.playerNum === 1 || !isOnlineGame()) showCallout(`${c.id}: IDENTITY DISC +300!`, false);
           playTone(660, 0.16, 'triangle', 0.09, 1320);
         }
+        if (isOnlineGame() && netRole === 'host') netBroadcast({ t: 'disc_grab', slotIdx: c.slotIdx });
       }
 
       // Collision + Takedown owner tracking
@@ -2331,14 +2646,16 @@
           c.segments = [];
           spawnShatter(c.x, c.z, c.color);
           if (isOnlineGame() && netRole === 'host') {
-            netSend({ t: 'derez', idx: cycles.indexOf(c), killerIdx: hitOwner ? cycles.indexOf(hitOwner) : -1, x: c.x, z: c.z });
+            netBroadcast({ t: 'derez', idx: cycles.indexOf(c), killerSlot: hitOwner ? hitOwner.slotIdx : -1, x: c.x, z: c.z });
           }
           if (!attractMode) {
             if (hitOwner && hitOwner.isPlayer && hitOwner !== c) {
               takedowns++; score += 500;
-              showCallout(`${hitOwner.id} DEREZZED ${c.id}!`, true);
+              if (hitOwner.playerNum === 1) roundKills++;
+              const ks = (hitOwner.playerNum === 1 && roundKills >= 3) ? 'TRIPLE DEREZ! UNSTOPPABLE!' : (hitOwner.playerNum === 1 && roundKills === 2) ? 'DOUBLE DEREZ! +500' : `${hitOwner.id} DEREZZED ${c.id}!`;
+              showCallout(ks, true);
               addFeed(`${hitOwner.id} DEREZZED ${c.id} (+500)`, c.color);
-              playTone(520, 0.2, 'square', 0.09, 880);
+              playTone(520 + roundKills * 110, 0.22, 'square', 0.09, 880 + roundKills * 120);
             } else {
               addFeed(`${c.id} DEREZZED`, c.color);
             }
@@ -2412,14 +2729,14 @@
       const fov2 = 62 + Math.max(0, (p2.speed - 36) * 0.48);
       camera2.fov += (fov2 - camera2.fov) * Math.min(1, rawDt * 8);
       camera2.updateProjectionMatrix();
-      if (camMode === 'low') {
+      if (camMode2 === 'low') {
         const pull2 = 11 + Math.max(0, (p2.speed - 36) * 0.085);
         camera2.position.lerp(new THREE.Vector3(p2.x - d2.x * pull2 + sx, 4.5 + sy, p2.z - d2.z * pull2), snapAlpha);
         lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 19, 1.0, p2.z + d2.z * 19), snapAlpha);
-      } else if (camMode === 'high') {
+      } else if (camMode2 === 'high') {
         camera2.position.lerp(new THREE.Vector3(p2.x - d2.x * 18 + sx, 16 + sy, p2.z - d2.z * 18), snapAlpha);
         lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 12, 0.5, p2.z + d2.z * 12), snapAlpha);
-      } else if (camMode === 'fpv') {
+      } else if (camMode2 === 'fpv') {
         camera2.position.lerp(new THREE.Vector3(p2.x + d2.x * 0.9, 1.52, p2.z + d2.z * 0.9), Math.min(1, rawDt * 42));
         lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 28, 1.32, p2.z + d2.z * 28), Math.min(1, rawDt * 34));
       } else {
@@ -2427,7 +2744,7 @@
         lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 8, 0, p2.z + d2.z * 8), snapAlpha);
       }
       camera2.lookAt(lookTarget2);
-      if (camMode === 'low' || camMode === 'fpv') camera2.rotateZ(camBank2);
+      if (camMode2 === 'low' || camMode2 === 'fpv') camera2.rotateZ(camBank2);
 
       document.getElementById('p2-speed-num').textContent = Math.round(p2.speed * 4.2);
       document.getElementById('p2-speed-fill').style.width = Math.min(100, (p2.speed / 85) * 100) + '%';
@@ -2468,8 +2785,18 @@
 
     document.getElementById('visor-hud').classList.toggle('on', camMode === 'fpv' && running && !attractMode && !paused);
     const vig = document.getElementById('vignette');
-    vig.classList.toggle('danger', p.alive && (p.burningRubber || p.rubber < 1.1));
-    vig.classList.toggle('grind', p.alive && p.grinding && !p.burningRubber && p.rubber >= 1.1);
+    if (isSplitScreen()) {
+      vig.classList.remove('danger', 'grind');
+      const v1 = document.getElementById('vig-p1'), v2 = document.getElementById('vig-p2');
+      const c1 = cycles[0], c2 = cycles[1];
+      v1.classList.toggle('danger', !!(c1 && c1.alive && (c1.burningRubber || c1.rubber < 1.1)));
+      v1.classList.toggle('grind', !!(c1 && c1.alive && c1.grinding && !c1.burningRubber && c1.rubber >= 1.1));
+      v2.classList.toggle('danger', !!(c2 && c2.alive && (c2.burningRubber || c2.rubber < 1.1)));
+      v2.classList.toggle('grind', !!(c2 && c2.alive && c2.grinding && !c2.burningRubber && c2.rubber >= 1.1));
+    } else {
+      vig.classList.toggle('danger', p.alive && (p.burningRubber || p.rubber < 1.1));
+      vig.classList.toggle('grind', p.alive && p.grinding && !p.burningRubber && p.rubber >= 1.1);
+    }
     if (p.burningRubber && p.alive) wasBurning = true;
     else if (wasBurning && p.alive && !p.burningRubber) {
       wasBurning = false; score += 250; clutches++;
@@ -2487,7 +2814,7 @@
       netTickAcc += rawDt;
       if (netTickAcc >= 0.033) {
         netTickAcc = 0;
-        netSend({
+        netBroadcast({
           t: 'state', sc: score, cd: countdown,
           disc: activeDisc ? [activeDisc.x, activeDisc.z] : null,
           c: cycles.map(c => [c.x, c.z, c.dir, c.speed, c.nitro, c.rubber, c.alive ? 1 : 0, c.grinding ? 1 : 0, c.burningRubber ? 1 : 0])
@@ -2495,24 +2822,37 @@
       }
     }
 
-    const isTwoHuman = isSplitScreen() || isOnlineGame();
-    const splitEnd = isGuest ? false : (isTwoHuman
-      ? (aliveList.length <= 1 || (!cycles[0].alive && !cycles[1].alive))
-      : (!p.alive || aliveList.length <= 1));
+    const isMultiHuman = isSplitScreen() || isOnlineGame();
+    const anyHumanAlive = cycles.some(c => c.isPlayer && c.alive);
+    const splitEnd = isGuest ? false : (isMultiHuman
+      ? (aliveList.length <= 1 || !anyHumanAlive)
+      : (!myCyc.alive || aliveList.length <= 1));
     if (splitEnd && slowMo <= 0.05) {
-      running = false;
-      if (isTwoHuman) {
-        const p1A = cycles[0] && cycles[0].alive;
-        const p2A = cycles[1] && cycles[1].alive;
-        if (p1A && !p2A) { p1Wins++; splitWinnerText = isOnlineGame() ? 'HOST (P1) VICTORY' : 'PLAYER 1 VICTORY'; }
-        else if (p2A && !p1A) { p2Wins++; splitWinnerText = isOnlineGame() ? 'GUEST (P2) VICTORY' : 'PLAYER 2 VICTORY'; }
-        else { splitWinnerText = 'GRID DRAW / AI WINS'; }
+      running = false; postMatchLockout = 0.8;
+      if (isMultiHuman) {
+        const winCyc = aliveList.length === 1 ? aliveList[0] : null;
+        if (winCyc && winCyc.isPlayer) {
+          const wIdx = Math.max(0, (winCyc.playerNum || 1) - 1);
+          seriesScores[wIdx] = (seriesScores[wIdx] || 0) + 1;
+          if (wIdx === 0) p1Wins = seriesScores[0];
+          if (wIdx === 1) p2Wins = seriesScores[1];
+          if (seriesTarget > 1 && seriesScores[wIdx] >= seriesTarget) {
+            splitWinnerText = `${winCyc.id} — SERIES CHAMPION!`;
+            seriesScores = [0, 0, 0, 0];
+          } else if (seriesTarget > 1 && seriesScores[wIdx] === seriesTarget - 1) {
+            splitWinnerText = `${winCyc.id} WINS (MATCH POINT!)`;
+          } else {
+            splitWinnerText = `${winCyc.id} VICTORY`;
+          }
+        } else {
+          splitWinnerText = winCyc ? `${winCyc.id} WINS` : 'GRID DRAW';
+        }
         document.getElementById('p1-wins').textContent = p1Wins;
         document.getElementById('p2-wins').textContent = p2Wins;
         if (isOnlineGame() && netRole === 'host') {
-          netSend({ t: 'end', winnerText: splitWinnerText, sc: score, kills: takedowns, p1w: p1Wins, p2w: p2Wins });
+          netBroadcast({ t: 'end', winnerText: splitWinnerText, sc: score, kills: takedowns });
         }
-      } else if (p.alive) { wins++; }
+      } else if (myCyc.alive) { wins++; }
       try {
         localStorage.setItem('tron_gc3d_best', String(bestScore));
         localStorage.setItem('tron_gc3d_wins', String(wins));
@@ -2618,6 +2958,7 @@
           }
           renderer.render(scene, camera);
         }
+        updateNameplates(w, h);
       } catch (e) {}
     }
   }
@@ -2644,18 +2985,43 @@
     }
   }
 
+  function cycleCamera2() {
+    const order = ['low', 'high', 'iso', 'fpv'];
+    camMode2 = order[(order.indexOf(camMode2) + 1) % order.length];
+  }
+
   window.addEventListener('keydown', e => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
     if (e.repeat) return;
-    if (e.key === 'r' || e.key === 'R') { initAudio(); resetGame(); return; }
-    if (e.key === 'Enter' && (!running || attractMode)) { initAudio(); resetGame(); return; }
+    if (e.key === 'm' || e.key === 'M') { document.getElementById('mute-btn').click(); return; }
+    if (e.key === 'r' || e.key === 'R') {
+      if (postMatchLockout > 0) return;
+      if (isOnlineGame() && netRole === 'guest') { netSendTo(netConn, { t: 'rematch_req' }); setNetStatus('Rematch request sent to Host!', 'ok'); return; }
+      initAudio(); resetGame(); return;
+    }
+    if (e.key === 'Enter' && (!running || attractMode)) {
+      if (postMatchLockout > 0) return;
+      if (isOnlineGame() && netRole === 'guest') return;
+      initAudio(); resetGame(); return;
+    }
     if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { togglePause(); return; }
     if (e.key === 'c' || e.key === 'C') { cycleCamera(); return; }
+    if ((e.key === 'v' || e.key === 'V' || e.key === '/') && isSplitScreen()) { cycleCamera2(); return; }
+    if (e.key === 'Tab' && running && !attractMode && !isSplitScreen()) {
+      e.preventDefault();
+      const alive = cycles.filter(c => c.alive);
+      if (alive.length > 0) {
+        const curPos = alive.indexOf(cycles[specIdx]);
+        specIdx = cycles.indexOf(alive[(curPos + 1) % alive.length]);
+      }
+      return;
+    }
     if (!running || paused || attractMode || countdown > 0) return;
     if (isOnlineGame() && netRole === 'guest') {
-      if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft' || e.key === 'z' || e.key === 'Z') netSend({ t: 'turn', d: -1 });
-      if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight' || e.key === 'x' || e.key === 'X') netSend({ t: 'turn', d: 1 });
-      if (e.code === 'Space') { e.preventDefault(); boostHeld = true; netSend({ t: 'ctrl', b: true, k: brakeHeld }); }
-      if (e.key === 'Shift') { brakeHeld = true; netSend({ t: 'ctrl', b: boostHeld, k: true }); }
+      if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft' || e.key === 'z' || e.key === 'Z') netSendTo(netConn, { t: 'turn', d: -1 });
+      if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight' || e.key === 'x' || e.key === 'X') netSendTo(netConn, { t: 'turn', d: 1 });
+      if (e.code === 'Space') { e.preventDefault(); boostHeld = true; netSendTo(netConn, { t: 'ctrl', b: true, k: brakeHeld }); }
+      if (e.key === 'Shift') { brakeHeld = true; netSendTo(netConn, { t: 'ctrl', b: boostHeld, k: true }); }
       return;
     }
     if (isSplitScreen()) {
@@ -2663,19 +3029,20 @@
       if (e.key === 'd' || e.key === 'D' || e.key === 'x' || e.key === 'X') queueTurn(cycles[0], 1);
       if (e.key === 'ArrowLeft' && cycles[1]) { e.preventDefault(); queueTurn(cycles[1], -1); }
       if (e.key === 'ArrowRight' && cycles[1]) { e.preventDefault(); queueTurn(cycles[1], 1); }
-      if (e.key === 'ArrowUp' || e.key === 'Enter' || e.key === '/') { e.preventDefault(); boostHeld2 = true; }
+      if (e.key === 'ArrowUp' || e.code === 'ShiftRight') { e.preventDefault(); boostHeld2 = true; }
       if (e.key === 'ArrowDown') { e.preventDefault(); brakeHeld2 = true; }
+      if (e.code === 'ShiftLeft') brakeHeld = true;
     } else {
       if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft' || e.key === 'z' || e.key === 'Z') queueTurn(cycles[0], -1);
       if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight' || e.key === 'x' || e.key === 'X') queueTurn(cycles[0], 1);
+      if (e.key === 'Shift') brakeHeld = true;
     }
     if (e.code === 'Space') { e.preventDefault(); boostHeld = true; }
-    if (e.key === 'Shift') brakeHeld = true;
   });
   window.addEventListener('keyup', e => {
-    if (e.code === 'Space') { boostHeld = false; if (isOnlineGame() && netRole === 'guest') netSend({ t: 'ctrl', b: false, k: brakeHeld }); }
-    if (e.key === 'Shift') { brakeHeld = false; if (isOnlineGame() && netRole === 'guest') netSend({ t: 'ctrl', b: boostHeld, k: false }); }
-    if (e.key === 'ArrowUp' || e.key === 'Enter' || e.key === '/') boostHeld2 = false;
+    if (e.code === 'Space') { boostHeld = false; if (isOnlineGame() && netRole === 'guest') netSendTo(netConn, { t: 'ctrl', b: false, k: brakeHeld }); }
+    if (e.key === 'Shift' || e.code === 'ShiftLeft') { brakeHeld = false; if (isOnlineGame() && netRole === 'guest') netSendTo(netConn, { t: 'ctrl', b: boostHeld, k: false }); }
+    if (e.key === 'ArrowUp' || e.code === 'ShiftRight') boostHeld2 = false;
     if (e.key === 'ArrowDown') brakeHeld2 = false;
   });
 
@@ -2710,9 +3077,9 @@
     });
 
     // Cycle Garage Swatches
-    document.querySelectorAll('.swatch').forEach(sw => {
+    document.querySelectorAll('#livery-swatches .swatch').forEach(sw => {
       sw.addEventListener('click', () => {
-        document.querySelectorAll('.swatch').forEach(x => x.classList.remove('selected'));
+        document.querySelectorAll('#livery-swatches .swatch').forEach(x => x.classList.remove('selected'));
         sw.classList.add('selected');
         playerColor = parseInt(sw.dataset.color, 16);
         try { localStorage.setItem('tron_gc3d_livery', sw.dataset.color); } catch (e) {}
@@ -2723,7 +3090,10 @@
 
     document.getElementById('start-btn').addEventListener('click', () => { initAudio(); resetGame(); });
     document.getElementById('resume-btn').addEventListener('click', togglePause);
-    document.getElementById('restart-btn').addEventListener('click', () => { initAudio(); resetGame(); });
+    document.getElementById('restart-btn').addEventListener('click', () => {
+      if (isOnlineGame() && netRole === 'guest') { netSendTo(netConn, { t: 'rematch_req' }); setNetStatus('Rematch request sent to Host!', 'ok'); return; }
+      initAudio(); resetGame();
+    });
     document.getElementById('pause-btn').addEventListener('click', togglePause);
     document.getElementById('menu-btn').addEventListener('click', () => { if (!paused && running && !attractMode) togglePause(); else openMenu(false, false, false); });
     document.getElementById('cam-cycle-btn').addEventListener('click', cycleCamera);
@@ -2741,9 +3111,45 @@
     document.getElementById('join-btn').addEventListener('click', () => { initAudio(); joinOnlineRoom(); });
     document.getElementById('net-disconnect-btn').addEventListener('click', disconnectOnline);
     document.getElementById('online-start-btn').addEventListener('click', () => {
-      if (netRole === 'host' && netConn && netConn.open) {
+      if (netRole === 'host' && netConns.length > 0) {
         initAudio(); gameMode = onlineMode; resetGame();
       }
+    });
+    document.getElementById('ai-fill-select').addEventListener('change', e => {
+      fillEmptyWithAI = e.target.value === 'on';
+      renderLobbyRoster(); broadcastRoster();
+    });
+    document.getElementById('online-mode-select').addEventListener('change', e => {
+      onlineMode = e.target.value;
+      renderLobbyRoster(); broadcastRoster();
+    });
+    document.getElementById('ready-btn').addEventListener('click', e => {
+      if (netRole !== 'guest' || !netConn) return;
+      guestReady = !guestReady;
+      e.target.textContent = guestReady ? 'READY ✓' : 'READY UP';
+      netSendTo(netConn, { t: 'ready', val: guestReady });
+    });
+    document.getElementById('series-select').addEventListener('change', e => { seriesTarget = parseInt(e.target.value, 10) || 1; seriesScores = [0, 0, 0, 0]; });
+    document.getElementById('spawn-select').addEventListener('change', e => { spawnPattern = e.target.value; });
+    document.getElementById('tags-select').addEventListener('change', e => { showTags = e.target.value === 'on'; });
+    document.getElementById('bgm-vol').addEventListener('input', e => { bgmVol = parseInt(e.target.value, 10) / 100; });
+    document.getElementById('sfx-vol').addEventListener('input', e => { sfxVol = parseInt(e.target.value, 10) / 100; });
+    const csInput = document.getElementById('callsign-input');
+    csInput.value = playerName;
+    csInput.addEventListener('input', e => {
+      playerName = (e.target.value || 'PLAYER 1').toUpperCase().slice(0, 10);
+      lobbySlots[0].name = playerName;
+      try { localStorage.setItem('tron_gc3d_callsign', playerName); } catch (err) {}
+    });
+    document.querySelectorAll('#livery-p2-swatches .swatch').forEach(sw => {
+      const match = parseInt(sw.dataset.color, 16) === player2Color;
+      sw.classList.toggle('selected', match);
+      sw.addEventListener('click', () => {
+        document.querySelectorAll('#livery-p2-swatches .swatch').forEach(x => x.classList.remove('selected'));
+        sw.classList.add('selected');
+        player2Color = parseInt(sw.dataset.color, 16);
+        try { localStorage.setItem('tron_gc3d_livery2', sw.dataset.color); } catch (err) {}
+      });
     });
     document.getElementById('copy-code-btn').addEventListener('click', () => {
       const code = 'GRID-' + netRoomCode;
