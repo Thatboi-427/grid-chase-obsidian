@@ -949,32 +949,21 @@
         const spdBoost = (!inLobby && p && p.alive) ? Math.max(0, (p.speed - 36) * 14) : 0;
 
         if (audioCtx.state === 'suspended') return;
-        // Analog Tron: Legacy synth bass pulse (rich & audible in lobby, driving in-match)
+        // Unified driving Tron: Legacy synth bass pulse + sub kick in both Lobby & Match
         const o = audioCtx.createOscillator(), f = audioCtx.createBiquadFilter(), g = audioCtx.createGain();
         o.type = 'sawtooth'; o.frequency.setValueAtTime(freq, t);
         f.type = 'lowpass';
-        const baseCutoff = inLobby ? (step % 4 === 0 ? 640 : 420) : (step % 4 === 0 ? 780 : 460);
+        const baseCutoff = step % 4 === 0 ? 780 : 460;
         f.frequency.setValueAtTime(baseCutoff + spdBoost, t);
         f.frequency.exponentialRampToValueAtTime(140, t + 0.16);
-        const bassVol = (inLobby ? 0.095 : 0.11) * bgmVol;
+        const bassVol = 0.11 * bgmVol;
         g.gain.setValueAtTime(Math.max(0.0001, bassVol), t);
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.17);
         o.connect(f); f.connect(g); g.connect(audioCtx.destination);
         o.start(t); o.stop(t + 0.18);
 
-        // Shimmering atmospheric arpeggio during Lobby / Menu selection
-        if (inLobby && step % 2 === 0 && bgmVol > 0.01) {
-          const ao = audioCtx.createOscillator(), ag = audioCtx.createGain();
-          ao.type = 'triangle';
-          ao.frequency.setValueAtTime(LOBBY_ARP[(step / 2) % LOBBY_ARP.length], t);
-          ag.gain.setValueAtTime(0.052 * bgmVol, t);
-          ag.gain.exponentialRampToValueAtTime(0.001, t + 0.30);
-          ao.connect(ag); ag.connect(audioCtx.destination);
-          ao.start(t); ao.stop(t + 0.32);
-        }
-
-        // Four-on-the-floor sub kick during active gameplay
-        if (!inLobby && step % 4 === 0 && bgmVol > 0.01) {
+        // Four-on-the-floor sub kick continuously in Lobby & active gameplay
+        if (step % 4 === 0 && bgmVol > 0.01) {
           const ko = audioCtx.createOscillator(), kg = audioCtx.createGain();
           ko.type = 'sine';
           ko.frequency.setValueAtTime(110, t);
