@@ -437,6 +437,13 @@
             <input id="join-code-input" class="net-input" type="text" maxlength="10" placeholder="ROOM CODE" />
             <button id="join-btn" style="background:#38bdf8;color:#020612;border:none;">Join Room</button>
           </div>
+          <details style="margin-top:8px;font-size:10.5px;color:#94a3b8;">
+            <summary style="cursor:pointer;color:#38bdf8;font-weight:700;">Mobile 5G / Strict Wi-Fi Relay (Optional Free TURN URL)</summary>
+            <div class="net-row" style="margin-top:6px;">
+              <input id="turn-url-input" class="net-input" style="flex:1;width:auto;font-size:11px;letter-spacing:0.02em;text-transform:none;" type="text" placeholder="Optional: Metered Open Relay API URL" />
+              <button id="save-turn-btn" style="font-size:10px;">Save</button>
+            </div>
+          </details>
           <div id="net-status" class="net-status">Offline — Host a 4-player room or enter a friend's 4-letter code.</div>
         </div>
       </div>
@@ -1815,6 +1822,33 @@
     }
   }
 
+  let joinTimeout = null, turnApiUrl = '';
+  try { turnApiUrl = localStorage.getItem('tron_gc3d_turn_url') || ''; } catch (e) {}
+
+  async function buildPeerConfig() {
+    const iceServers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: 'stun:global.stun.twilio.com:3478' }
+    ];
+    if (turnApiUrl && turnApiUrl.startsWith('https://')) {
+      try {
+        const res = await fetch(turnApiUrl);
+        if (res.ok) {
+          const extra = await res.json();
+          if (Array.isArray(extra)) iceServers.push(...extra);
+        }
+      } catch (e) {}
+    }
+    return { debug: 0, config: { iceServers, iceCandidatePoolSize: 4 } };
+  }
+
+  function clearJoinTimeout() {
+    if (joinTimeout) { clearTimeout(joinTimeout); joinTimeout = null; }
+  }
+
   function setNetStatus(msg, cls) {
     const el = document.getElementById('net-status');
     if (!el) return;
@@ -1865,6 +1899,7 @@
   }
 
   function disconnectOnline() {
+    clearJoinTimeout();
     netConns.forEach(c => { try { c.close(); } catch (e) {} });
     try { if (netConn) netConn.close(); } catch (e) {}
     try { if (netPeer) netPeer.destroy(); } catch (e) {}
@@ -1900,7 +1935,7 @@
     return out;
   }
 
-  function hostOnlineRoom() {
+  async function hostOnlineRoom() {
     if (typeof Peer === 'undefined') {
       setNetStatus('PeerJS library unavailable (offline or blocked). Try hosting on GitHub Pages.', 'err');
       return;
@@ -1910,9 +1945,10 @@
     netRoomCode = genRoomCode();
     lobbySlots[0].name = playerName || 'HOST';
     lobbySlots[0].color = playerColor;
-    setNetStatus('Creating 4-player room GRID-' + netRoomCode + '...', '');
+    setNetStatus('Step 1/2: Registering room GRID-' + netRoomCode + ' on signaling server...', '');
     try {
-      netPeer = new Peer('gridchase-' + netRoomCode, { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] } });
+      const cfg = await buildPeerConfig();
+      netPeer = new Peer('gridchase-' + netRoomCode, cfg);
       netPeer.on('open', () => {
         document.getElementById('room-code-display').textContent = 'GRID-' + netRoomCode;
         document.getElementById('host-code-row').style.display = 'flex';
@@ -1921,7 +1957,13 @@
         document.getElementById('online-start-btn').disabled = true;
         document.getElementById('ready-btn').style.display = 'none';
         renderLobbyRoster();
-        setNetStatus('Room live! Share code GRID-' + netRoomCode + ' (up to ' + maxOnlineSlots() + ' players).', 'ok');
+        setNetStatus('Room live! Share code GRID-' + netRoomCode + ' (keep this tab open while friends join).', 'ok');
+      });
+      netPeer.on('disconnected', () => {
+        if (netRole === 'host' && netPeer && !netPeer.destroyed) {
+          setNetStatus('Signaling paused — auto-reconnecting room GRID-' + netRoomCode + '...', '');
+          try { netPeer.reconnect(); } catch (e) {}
+        }
       });
       netPeer.on('connection', conn => {
         const maxS = maxOnlineSlots();
@@ -1969,25 +2011,48 @@
         });
       });
       netPeer.on('error', err => {
-        setNetStatus('Online signaling error: ' + (err && err.type ? err.type : 'unavailable'), 'err');
+        setNetStatus('Host signaling error: ' + (err && err.type ? err.type : 'unavailable'), 'err');
       });
     } catch (e) { setNetStatus('Could not initialize WebRTC Peer.', 'err'); }
   }
 
-  function joinOnlineRoom() {
+  async function joinOnlineRoom() {
     if (typeof Peer === 'undefined') { setNetStatus('PeerJS library unavailable (offline or blocked).', 'err'); return; }
     const raw = (document.getElementById('join-code-input').value || '').trim().toUpperCase().replace(/^GRID-/, '');
     if (raw.length < 3) { setNetStatus('Enter a valid 4-character room code (e.g. 7K4M).', 'err'); return; }
     disconnectOnline();
     netRole = 'guest'; netRoomCode = raw; guestReady = false;
-    setNetStatus('Connecting to room GRID-' + raw + '...', '');
+    setNetStatus('Step 1/3: Connecting to signaling server...', '');
     try {
-      netPeer = new Peer(undefined, { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] } });
+      const cfg = await buildPeerConfig();
+      netPeer = new Peer(undefined, cfg);
+      // 10-second connection timeout so phones never hang on "Connecting..." forever
+      joinTimeout = setTimeout(() => {
+        if (!netConn || !netConn.open) {
+          setNetStatus('Timed out (10s) joining GRID-' + raw + '. Ensure Host tab is awake, try same Wi-Fi, or add a free TURN Relay URL above.', 'err');
+          try { if (netConn) netConn.close(); } catch (e) {}
+        }
+      }, 10000);
       netPeer.on('open', () => {
+        setNetStatus('Step 2/3: Dialing room GRID-' + raw + '...', '');
         const conn = netPeer.connect('gridchase-' + raw, { reliable: true });
         netConn = conn;
         lastHostPong = performance.now();
+        // Watch WebRTC ICE handshake state for live mobile NAT diagnostics
+        setTimeout(() => {
+          const pc = conn && conn.peerConnection;
+          if (!pc) return;
+          pc.addEventListener('iceconnectionstatechange', () => {
+            const st = pc.iceConnectionState;
+            if (st === 'checking') setNetStatus('Step 3/3: Negotiating WebRTC handshake (ICE checking)...', '');
+            else if (st === 'failed') {
+              clearJoinTimeout();
+              setNetStatus('Mobile 5G/Wi-Fi firewall blocked direct P2P (ICE failed). Try Wi-Fi or paste a free Metered TURN URL above.', 'err');
+            }
+          });
+        }, 120);
         conn.on('open', () => {
+          clearJoinTimeout();
           document.getElementById('net-pill').classList.add('on');
           document.getElementById('net-pill').textContent = 'ONLINE GUEST';
           document.getElementById('ping-wrap').style.display = 'inline';
@@ -2000,16 +2065,23 @@
         });
         conn.on('data', msg => handleGuestMessage(msg));
         conn.on('close', () => {
+          clearJoinTimeout();
           setNetStatus('Disconnected from Host.', 'err');
           document.getElementById('net-pill').classList.remove('on');
           document.getElementById('ping-wrap').style.display = 'none';
           netConn = null;
           if (running && isOnlineGame()) { running = false; openMenu(false, true, false); }
         });
-        conn.on('error', () => setNetStatus('Connection error with Host.', 'err'));
+        conn.on('error', () => { clearJoinTimeout(); setNetStatus('Connection error with Host.', 'err'); });
       });
-      netPeer.on('error', err => setNetStatus('Could not reach GRID-' + raw + ' (' + (err && err.type ? err.type : 'not found') + ').', 'err'));
-    } catch (e) { setNetStatus('WebRTC connection failed.', 'err'); }
+      netPeer.on('error', err => {
+        clearJoinTimeout();
+        const reason = err && err.type === 'peer-unavailable'
+          ? 'Room GRID-' + raw + ' not found (Host may have closed or backgrounded their tab).'
+          : 'Could not reach GRID-' + raw + ' (' + (err && err.type ? err.type : 'error') + ').';
+        setNetStatus(reason, 'err');
+      });
+    } catch (e) { clearJoinTimeout(); setNetStatus('WebRTC connection failed.', 'err'); }
   }
 
   function handleHostMessage(slotIdx, conn, msg) {
@@ -3197,6 +3269,9 @@
         if (sparkGain) sparkGain.gain.value = 0;
       } else {
         handleResize();
+        if (netRole === 'host' && netPeer && netPeer.disconnected && !netPeer.destroyed) {
+          try { netPeer.reconnect(); setNetStatus('Tab resumed — room GRID-' + netRoomCode + ' active!', 'ok'); } catch (e) {}
+        }
       }
     });
     document.getElementById('best').textContent = bestScore;
@@ -3255,6 +3330,13 @@
     document.getElementById('online-mode-select').addEventListener('change', e => { onlineMode = e.target.value; });
     document.getElementById('host-btn').addEventListener('click', () => { initAudio(); hostOnlineRoom(); });
     document.getElementById('join-btn').addEventListener('click', () => { initAudio(); joinOnlineRoom(); });
+    const turnIn = document.getElementById('turn-url-input');
+    if (turnIn) turnIn.value = turnApiUrl;
+    document.getElementById('save-turn-btn').addEventListener('click', () => {
+      turnApiUrl = (document.getElementById('turn-url-input').value || '').trim();
+      try { localStorage.setItem('tron_gc3d_turn_url', turnApiUrl); } catch (e) {}
+      setNetStatus(turnApiUrl ? 'Custom TURN Relay URL saved! Re-host or re-join to apply.' : 'Cleared custom TURN Relay URL.', 'ok');
+    });
     document.getElementById('net-disconnect-btn').addEventListener('click', disconnectOnline);
     document.getElementById('online-start-btn').addEventListener('click', () => {
       if (netRole === 'host' && netConns.length > 0) {
