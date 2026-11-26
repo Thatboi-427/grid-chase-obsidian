@@ -284,9 +284,12 @@
   <!-- Official AAA Studio Main Menu & Post-Match Telemetry Overlay -->
   <div id="overlay">
     <div class="studio-shell">
-      <div class="studio-tag" id="studio-tag">LEGACY STORM OBSIDIAN • DIRECTOR'S CUT</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <div class="studio-tag" id="studio-tag" style="margin-bottom:0;">LEGACY STORM OBSIDIAN • DIRECTOR'S CUT</div>
+        <button id="lobby-audio-btn" style="padding:3px 9px;font-size:10px;border-color:#10b981;color:#10b981;">♪ MUSIC: ON</button>
+      </div>
       <div class="studio-title" id="modal-title">GRID CHASE: LEGACY</div>
-      <div class="studio-sub" id="modal-sub">Competitive 3D Light Cycle Combat Arena • <button id="lobby-audio-btn" style="padding:2px 8px;font-size:10px;border-color:#38bdf8;color:#38bdf8;">♪ CLICK TO START MUSIC</button></div>
+      <div class="studio-sub" id="modal-sub">Competitive 3D Light Cycle Combat Arena</div>
 
       <div id="telemetry-block" style="display:none;">
         <div class="telemetry-grid">
@@ -3116,29 +3119,34 @@
     function updateLobbyAudioBadge() {
       const b = document.getElementById('lobby-audio-btn');
       if (!b) return;
-      if (muted || !musicOn) { b.textContent = '♪ MUSIC: OFF'; b.style.color = '#94a3b8'; }
-      else if (audioCtx && audioCtx.state === 'running') { b.textContent = '♪ MUSIC: ON'; b.style.color = '#10b981'; b.style.borderColor = '#10b981'; }
-      else { b.textContent = '♪ CLICK TO START MUSIC'; b.style.color = '#38bdf8'; }
+      const on = !muted && musicOn;
+      b.textContent = on ? '♪ MUSIC: ON' : '♪ MUSIC: OFF';
+      b.style.color = on ? '#10b981' : '#94a3b8';
+      b.style.borderColor = on ? '#10b981' : 'rgba(148,163,184,0.4)';
     }
     window.updateLobbyAudioBadge = updateLobbyAudioBadge;
+    // Try starting music immediately on page load; if browser autoplay policy pauses it, silently resume on first interaction!
+    initAudio();
     const unlockLobbyAudio = () => {
       initAudio();
       if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume().then(updateLobbyAudioBadge).catch(() => {});
-      } else {
-        if (window.updateLobbyAudioBadge) window.updateLobbyAudioBadge();
+        audioCtx.resume().catch(() => {});
       }
     };
-    // Persistent click/touchend/keydown unlock so browser autoplay policies never leave AudioContext suspended!
-    window.addEventListener('click', unlockLobbyAudio, true);
-    window.addEventListener('touchend', unlockLobbyAudio, true);
-    window.addEventListener('keydown', unlockLobbyAudio, true);
+    window.addEventListener('pointerdown', unlockLobbyAudio, false);
+    window.addEventListener('click', unlockLobbyAudio, false);
+    window.addEventListener('keydown', unlockLobbyAudio, false);
     document.getElementById('lobby-audio-btn').addEventListener('click', e => {
       e.stopPropagation();
-      if (!audioCtx || audioCtx.state === 'suspended') { unlockLobbyAudio(); return; }
+      initAudio();
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
       musicOn = !musicOn;
+      if (musicOn && muted) {
+        muted = false;
+        document.getElementById('mute-btn').textContent = 'SFX: ON';
+      }
       document.getElementById('music-btn').textContent = musicOn ? 'BGM: ON' : 'BGM: OFF';
-      if (window.updateLobbyAudioBadge) window.updateLobbyAudioBadge();
+      updateLobbyAudioBadge();
     });
     handleResize();
     window.addEventListener('resize', handleResize);
@@ -3273,10 +3281,11 @@
     document.getElementById('ai-select').addEventListener('change', e => { aiDiff = e.target.value; });
     document.getElementById('speed-select').addEventListener('change', e => { speedMult = parseFloat(e.target.value); });
     document.getElementById('disc-select').addEventListener('change', e => { discsEnabled = e.target.value === 'on'; if (!discsEnabled) removeDisc(); });
-    document.getElementById('music-btn').addEventListener('click', e => { musicOn = !musicOn; e.target.textContent = musicOn ? 'BGM: ON' : 'BGM: OFF'; });
+    document.getElementById('music-btn').addEventListener('click', e => { musicOn = !musicOn; e.target.textContent = musicOn ? 'BGM: ON' : 'BGM: OFF'; if (window.updateLobbyAudioBadge) window.updateLobbyAudioBadge(); });
     document.getElementById('mute-btn').addEventListener('click', e => {
       muted = !muted; e.target.textContent = muted ? 'SFX: OFF' : 'SFX: ON';
-      if (engGain) engGain.gain.value = (muted || !running || paused || attractMode) ? 0 : 0.04;
+      if (engGain) engGain.gain.value = (muted || !running || paused || attractMode) ? 0 : 0.04 * sfxVol;
+      if (window.updateLobbyAudioBadge) window.updateLobbyAudioBadge();
     });
     document.getElementById('btn-left').addEventListener('pointerdown', () => {
       if (!running || paused || attractMode || countdown > 0) return;
