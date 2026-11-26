@@ -247,7 +247,7 @@
         <div class="hud-stats">
           <span>SCORE <strong id="score">0</strong></span>
           <span>TAKEDOWNS <strong id="takedowns">0</strong></span>
-          <span>ALIVE <strong id="alive">4</strong>/4</span>
+          <span>ALIVE <strong id="alive">4</strong>/<span id="alive-max">4</span></span>
           <span>WINS <strong id="wins">0</strong></span>
           <span>BEST <strong id="best">0</strong></span>
           <span id="ping-wrap" style="display:none;">PING <strong id="ping-ms" style="color:#10b981;">--</strong></span>
@@ -1751,7 +1751,7 @@
       document.getElementById('t-clutches').textContent = clutches;
       document.getElementById('t-discs').textContent = discsGrabbed;
       document.getElementById('t-time').textContent = matchTime.toFixed(1) + 's';
-      startBtn.textContent = 'REMATCH (R)';
+      startBtn.textContent = (isOnlineGame() && netRole === 'guest') ? 'REQUEST REMATCH (R)' : 'REMATCH (R)';
     } else if (isPause) {
       tel.style.display = 'none';
       document.getElementById('studio-tag').textContent = 'SYSTEM PAUSED';
@@ -1864,7 +1864,7 @@
     lobbySlots[0].color = playerColor;
     setNetStatus('Creating 4-player room GRID-' + netRoomCode + '...', '');
     try {
-      netPeer = new Peer('gridchase-' + netRoomCode, { debug: 0 });
+      netPeer = new Peer('gridchase-' + netRoomCode, { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] } });
       netPeer.on('open', () => {
         document.getElementById('room-code-display').textContent = 'GRID-' + netRoomCode;
         document.getElementById('host-code-row').style.display = 'flex';
@@ -1907,6 +1907,16 @@
           netConns = netConns.filter(c => c !== conn);
           renderLobbyRoster(); broadcastRoster();
           addFeed(`PLAYER ${freeIdx + 1} DISCONNECTED`, 0xf43f5e);
+          if (running && isOnlineGame()) {
+            const dc = cycles.find(c => c.slotIdx === freeIdx);
+            if (dc && dc.alive) {
+              dc.alive = false; dc.mesh.visible = false;
+              dc.segments.forEach(seg => { if (seg.mesh) dissolvingWalls.push({ mesh: seg.mesh, life: 0.55 }); });
+              dc.segments = [];
+              spawnShatter(dc.x, dc.z, dc.color);
+              netBroadcast({ t: 'derez', idx: cycles.indexOf(dc), killerSlot: -1, x: dc.x, z: dc.z });
+            }
+          }
           if (netConns.length === 0) setNetStatus('All guests disconnected. Waiting for players...', 'err');
         });
       });
@@ -1924,7 +1934,7 @@
     netRole = 'guest'; netRoomCode = raw; guestReady = false;
     setNetStatus('Connecting to room GRID-' + raw + '...', '');
     try {
-      netPeer = new Peer(undefined, { debug: 0 });
+      netPeer = new Peer(undefined, { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] } });
       netPeer.on('open', () => {
         const conn = netPeer.connect('gridchase-' + raw, { reliable: true });
         netConn = conn;
@@ -1937,7 +1947,7 @@
           document.getElementById('online-start-btn').style.display = 'none';
           document.getElementById('ready-btn').style.display = 'inline-block';
           document.getElementById('ready-btn').textContent = 'READY UP';
-          netSendTo(conn, { t: 'hello', name: playerName || 'GUEST' });
+          netSendTo(conn, { t: 'hello', name: playerName || 'GUEST', color: playerColor });
           setNetStatus('Connected to GRID-' + raw + '! Click READY UP and wait for Host.', 'ok');
         });
         conn.on('data', msg => handleGuestMessage(msg));
@@ -1958,6 +1968,10 @@
     if (!msg || typeof msg !== 'object') return;
     if (msg.t === 'hello') {
       if (msg.name) lobbySlots[slotIdx].name = String(msg.name).slice(0, 10).toUpperCase();
+      if (typeof msg.color === 'number') {
+        const taken = lobbySlots.some((sl, idx) => idx !== slotIdx && sl.type !== 'open' && sl.color === msg.color);
+        if (!taken) lobbySlots[slotIdx].color = msg.color;
+      }
       renderLobbyRoster(); broadcastRoster();
     } else if (msg.t === 'ready') {
       lobbySlots[slotIdx].ready = !!msg.val;
@@ -2009,6 +2023,8 @@
       clearArena(); rebuildPillars();
       score = 0; takedowns = 0; clutches = 0; discsGrabbed = 0; peakKmh = 0; matchTime = 0;
       slowMo = 0; shake = 0; paused = false; camBank = 0; wasBurning = false; calloutTimer = 0;
+    boostHeld = false; brakeHeld = false; boostHeld2 = false; brakeHeld2 = false;
+    lobbySlots.forEach(sl => { sl.boost = false; sl.brake = false; });
       document.getElementById('killfeed').innerHTML = '';
       document.getElementById('callout').classList.remove('show');
       document.getElementById('spec-bar').classList.remove('on');
@@ -2037,6 +2053,7 @@
       c.bankAngle = msg.delta * 0.46;
       if (c.slotIdx === mySlot) { camBank = msg.delta * 0.09; playTone(msg.delta > 0 ? 640 : 520, 0.04, 'triangle', 0.07); }
       startSegment(c);
+      trimTrail(c);
     } else if (msg.t === 'disc_grab') {
       removeDisc();
       if (msg.slotIdx === mySlot) { discsGrabbed++; showCallout('IDENTITY DISC +300 • FULL NITRO', false); }
@@ -2053,13 +2070,40 @@
         const ks = roundKills >= 3 ? 'TRIPLE DEREZ! +500' : roundKills === 2 ? 'DOUBLE DEREZ! +500' : `TAKEDOWN! ${c.id} +500`;
         showCallout(ks, true);
       }
+    } else if (msg.t === 'go') {
+      countdown = 0;
+      document.getElementById('banner').classList.remove('show');
+      if (engGain && !muted) engGain.gain.value = 0.04 * sfxVol;
+      playTone(880, 0.18, 'square', 0.08);
+    } else if (msg.t === 'pause') {
+      paused = !!msg.val;
+      document.getElementById('pause-btn').textContent = paused ? 'Resume (P)' : 'Pause (P)';
+      if (engGain) engGain.gain.value = (paused || muted) ? 0 : 0.04 * sfxVol;
+      if (paused) openMenu(true, false, false);
+      else { document.getElementById('overlay').classList.add('hidden'); document.getElementById('hud').classList.remove('menu-mode'); }
     } else if (msg.t === 'state' && running) {
-      score = msg.sc; countdown = msg.cd;
+      score = msg.sc;
+      const wasCounting = countdown > 0;
+      countdown = msg.cd;
+      if (wasCounting && countdown <= 0) {
+        document.getElementById('banner').classList.remove('show');
+        if (engGain && !muted) engGain.gain.value = 0.04 * sfxVol;
+        playTone(880, 0.16, 'square', 0.08);
+      }
       if (msg.disc && !activeDisc) { spawnIdentityDisc(); if (activeDisc) { activeDisc.x = msg.disc[0]; activeDisc.z = msg.disc[1]; activeDisc.mesh.position.set(msg.disc[0], 0, msg.disc[1]); } }
       else if (!msg.disc && activeDisc) { removeDisc(); }
       msg.c.forEach((st, i) => {
         const c = cycles[i]; if (!c) return;
-        c.x += (st[0] - c.x) * 0.55; c.z += (st[1] - c.z) * 0.55;
+        const dirChanged = c.dir !== st[2];
+        const distErr = Math.hypot(st[0] - c.x, st[1] - c.z);
+        if (dirChanged || distErr > 4.5) {
+          c.x = st[0]; c.z = st[1];
+        } else {
+          // Axis-locked orthogonal correction (prevents diagonal trail drift!)
+          const d = DIRS[st[2]];
+          if (d.x !== 0) { c.x += (st[0] - c.x) * 0.5; c.z = st[1]; }
+          else { c.z += (st[1] - c.z) * 0.5; c.x = st[0]; }
+        }
         c.dir = st[2]; c.speed = st[3]; c.nitro = st[4]; c.rubber = st[5];
         c.alive = !!st[6]; c.grinding = !!st[7]; c.burningRubber = !!st[8];
         if (!c.alive) c.mesh.visible = false;
@@ -2357,7 +2401,51 @@
     fxCtx.stroke();
   }
 
+  // C1: Keep Chase & Iso cameras strictly inside the arena walls so perimeter fortress & stadium ribs NEVER block view!
+  function positionChaseCamera(cam, targetVec, bike, mode, bank, snapAlpha, rawDt, sx, sy) {
+    const d = DIRS[bike.dir];
+    const desiredFov = 62 + Math.max(0, (bike.speed - 36) * 0.48);
+    cam.fov += (desiredFov - cam.fov) * Math.min(1, rawDt * 8);
+    cam.updateProjectionMatrix();
+
+    const LIM = HALF - 2.6;
+    if (mode === 'low') {
+      const pull = 11 + Math.max(0, (bike.speed - 36) * 0.085);
+      const rawX = bike.x - d.x * pull + sx;
+      const rawZ = bike.z - d.z * pull;
+      const cx = Math.max(-LIM, Math.min(LIM, rawX));
+      const cz = Math.max(-LIM, Math.min(LIM, rawZ));
+      // If clamped close to the bike near a wall, smoothly lift camera Y for a clear unobstructed sightline
+      const actualDist = Math.hypot(cx - bike.x, cz - bike.z);
+      const squeeze = Math.max(0, 1 - actualDist / pull);
+      const cy = 4.6 + squeeze * 4.8 + sy;
+      cam.position.lerp(new THREE.Vector3(cx, cy, cz), snapAlpha);
+      targetVec.lerp(new THREE.Vector3(bike.x + d.x * 19, 1.0, bike.z + d.z * 19), snapAlpha);
+    } else if (mode === 'high') {
+      const pull = 18;
+      const cx = Math.max(-LIM, Math.min(LIM, bike.x - d.x * pull + sx));
+      const cz = Math.max(-LIM, Math.min(LIM, bike.z - d.z * pull));
+      const actualDist = Math.hypot(cx - bike.x, cz - bike.z);
+      const squeeze = Math.max(0, 1 - actualDist / pull);
+      cam.position.lerp(new THREE.Vector3(cx, 16 + squeeze * 6.5 + sy, cz), snapAlpha);
+      targetVec.lerp(new THREE.Vector3(bike.x + d.x * 12, 0.5, bike.z + d.z * 12), snapAlpha);
+    } else if (mode === 'fpv') {
+      cam.position.lerp(new THREE.Vector3(bike.x + d.x * 0.9 + sx * 0.3, 1.52 + sy * 0.25, bike.z + d.z * 0.9), Math.min(1, rawDt * 42));
+      targetVec.lerp(new THREE.Vector3(bike.x + d.x * 28, 1.32, bike.z + d.z * 28), Math.min(1, rawDt * 34));
+    } else {
+      // Iso mode: clamp inside stadium ribs & lift slightly so corner floodlight pylons never block view
+      const ISO_LIM = HALF - 6;
+      const cx = Math.max(-ISO_LIM, Math.min(ISO_LIM, bike.x + 26 + sx));
+      const cz = Math.max(-ISO_LIM, Math.min(ISO_LIM, bike.z + 26));
+      cam.position.lerp(new THREE.Vector3(cx, 42 + sy, cz), snapAlpha);
+      targetVec.lerp(new THREE.Vector3(bike.x + d.x * 8, 0, bike.z + d.z * 8), snapAlpha);
+    }
+    cam.lookAt(targetVec);
+    if (mode === 'low' || mode === 'fpv') cam.rotateZ(bank);
+  }
+
   function step(rawDt) {
+    if (postMatchLockout > 0) postMatchLockout = Math.max(0, postMatchLockout - rawDt);
     const now = performance.now() * 0.0004;
     recognizers.forEach(r => { r.position.x = Math.sin(now + r.userData.phase) * 48; });
     if (dustPoints) dustPoints.rotation.y += rawDt * 0.015;
@@ -2449,8 +2537,9 @@
       }
       if (countdown <= 0) {
         banner.classList.remove('show');
-        if (engGain && !muted) engGain.gain.value = 0.04;
+        if (engGain && !muted) engGain.gain.value = 0.04 * sfxVol;
         playTone(880, 0.18, 'square', 0.08);
+        if (isOnlineGame() && netRole === 'host') netBroadcast({ t: 'go' });
       }
       drawRadar();
       return;
@@ -2490,13 +2579,12 @@
     if (!attractMode) {
       score += Math.round(dt * 120);
       matchTime += dt;
-      if (discsEnabled && !activeDisc) {
+      if (!(isOnlineGame() && netRole === 'guest') && discsEnabled && !activeDisc) {
         discSpawnTimer -= dt;
         if (discSpawnTimer <= 0) spawnIdentityDisc();
       }
     }
 
-    if (postMatchLockout > 0) postMatchLockout = Math.max(0, postMatchLockout - rawDt);
     // N3: 2-Second Ping/Pong Heartbeat
     if (isOnlineGame() && netRole !== 'none') {
       pingAcc += rawDt;
@@ -2551,6 +2639,7 @@
           const curSeg = c.segments[c.segments.length - 1];
           curSeg.x2 = c.x; curSeg.z2 = c.z;
           updateSegmentMesh(curSeg);
+          trimTrail(c);
         }
       });
     } else cycles.forEach(c => {
@@ -2699,53 +2788,17 @@
       return;
     }
 
-    const d = DIRS[p.dir];
-    const desiredFov = 62 + Math.max(0, (p.speed - 36) * 0.48);
-    camera.fov += (desiredFov - camera.fov) * Math.min(1, rawDt * 8);
-    camera.updateProjectionMatrix();
-
     const snapAlpha = Math.min(1, rawDt * camSnap);
     const sx = (Math.random() - 0.5) * shake * 1.4, sy = (Math.random() - 0.5) * shake * 1.4;
-    if (camMode === 'low') {
-      const pull = 11 + Math.max(0, (p.speed - 36) * 0.085);
-      camera.position.lerp(new THREE.Vector3(p.x - d.x * pull + sx, 4.5 + sy, p.z - d.z * pull), snapAlpha);
-      lookTarget.lerp(new THREE.Vector3(p.x + d.x * 19, 1.0, p.z + d.z * 19), snapAlpha);
-    } else if (camMode === 'high') {
-      camera.position.lerp(new THREE.Vector3(p.x - d.x * 18 + sx, 16 + sy, p.z - d.z * 18), snapAlpha);
-      lookTarget.lerp(new THREE.Vector3(p.x + d.x * 12, 0.5, p.z + d.z * 12), snapAlpha);
-    } else if (camMode === 'fpv') {
-      camera.position.lerp(new THREE.Vector3(p.x + d.x * 0.9 + sx * 0.3, 1.52 + sy * 0.25, p.z + d.z * 0.9), Math.min(1, rawDt * 42));
-      lookTarget.lerp(new THREE.Vector3(p.x + d.x * 28, 1.32, p.z + d.z * 28), Math.min(1, rawDt * 34));
-    } else {
-      camera.position.lerp(new THREE.Vector3(p.x + 30 + sx, 38 + sy, p.z + 30), snapAlpha);
-      lookTarget.lerp(new THREE.Vector3(p.x + d.x * 8, 0, p.z + d.z * 8), snapAlpha);
-    }
-    camera.lookAt(lookTarget);
-    if (camMode === 'low' || camMode === 'fpv') camera.rotateZ(camBank);
+    // C6: In Split-Screen, if P1 derezzes while P2 is still fighting AI, P1's viewport spectates P2
+    const p1CamTarget = (isSplitScreen() && !p.alive && cycles[1] && cycles[1].alive) ? cycles[1] : p;
+    positionChaseCamera(camera, lookTarget, p1CamTarget, camMode, camBank, snapAlpha, rawDt, sx, sy);
+
     camBank2 += (0 - camBank2) * Math.min(1, rawDt * 10);
     if (isSplitScreen() && cycles[1] && camera2) {
       const p2 = cycles[1];
-      const d2 = DIRS[p2.dir];
-      const fov2 = 62 + Math.max(0, (p2.speed - 36) * 0.48);
-      camera2.fov += (fov2 - camera2.fov) * Math.min(1, rawDt * 8);
-      camera2.updateProjectionMatrix();
-      if (camMode2 === 'low') {
-        const pull2 = 11 + Math.max(0, (p2.speed - 36) * 0.085);
-        camera2.position.lerp(new THREE.Vector3(p2.x - d2.x * pull2 + sx, 4.5 + sy, p2.z - d2.z * pull2), snapAlpha);
-        lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 19, 1.0, p2.z + d2.z * 19), snapAlpha);
-      } else if (camMode2 === 'high') {
-        camera2.position.lerp(new THREE.Vector3(p2.x - d2.x * 18 + sx, 16 + sy, p2.z - d2.z * 18), snapAlpha);
-        lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 12, 0.5, p2.z + d2.z * 12), snapAlpha);
-      } else if (camMode2 === 'fpv') {
-        camera2.position.lerp(new THREE.Vector3(p2.x + d2.x * 0.9, 1.52, p2.z + d2.z * 0.9), Math.min(1, rawDt * 42));
-        lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 28, 1.32, p2.z + d2.z * 28), Math.min(1, rawDt * 34));
-      } else {
-        camera2.position.lerp(new THREE.Vector3(p2.x + 30 + sx, 38 + sy, p2.z + 30), snapAlpha);
-        lookTarget2.lerp(new THREE.Vector3(p2.x + d2.x * 8, 0, p2.z + d2.z * 8), snapAlpha);
-      }
-      camera2.lookAt(lookTarget2);
-      if (camMode2 === 'low' || camMode2 === 'fpv') camera2.rotateZ(camBank2);
-
+      const p2CamTarget = (!p2.alive && cycles[0] && cycles[0].alive) ? cycles[0] : p2;
+      positionChaseCamera(camera2, lookTarget2, p2CamTarget, camMode2, camBank2, snapAlpha, rawDt, sx, sy);
       document.getElementById('p2-speed-num').textContent = Math.round(p2.speed * 4.2);
       document.getElementById('p2-speed-fill').style.width = Math.min(100, (p2.speed / 85) * 100) + '%';
       document.getElementById('p2-nitro-num').textContent = Math.round(p2.nitro) + '%';
@@ -2758,8 +2811,8 @@
       engOsc1.frequency.value = 48 + p.speed * 1.7;
       engOsc2.frequency.value = 96 + p.speed * 3.4;
       engFilter.frequency.value = 280 + p.speed * 10;
-      if (grindGain) grindGain.gain.value = p.grinding && p.alive ? 0.025 : 0;
-      if (sparkGain) sparkGain.gain.value = p.burningRubber && p.alive ? 0.035 : 0;
+      if (grindGain) grindGain.gain.value = p.grinding && p.alive ? 0.025 * sfxVol : 0;
+      if (sparkGain) sparkGain.gain.value = p.burningRubber && p.alive ? 0.035 * sfxVol : 0;
     }
 
     const aliveList = cycles.filter(c => c.alive);
@@ -2771,7 +2824,8 @@
     document.getElementById('best').textContent = bestScore;
     document.getElementById('wins').textContent = wins;
     document.getElementById('alive').textContent = aliveList.length;
-    updateJumbotron('ENCOM GRID LIVE', `ALIVE: ${aliveList.length}/4  •  SCORE: ${score}`, p.grinding ? '#38bdf8' : '#facc15');
+    document.getElementById('alive-max').textContent = cycles.length;
+    updateJumbotron('ENCOM GRID LIVE', `ALIVE: ${aliveList.length}/${cycles.length}  •  SCORE: ${score}`, p.grinding ? '#38bdf8' : '#facc15');
     document.getElementById('speed-num').textContent = kmh;
     document.getElementById('speed-fill').style.width = Math.min(100, (p.speed / 85) * 100) + '%';
     document.getElementById('nitro-num').textContent = Math.round(p.nitro) + '%';
@@ -2898,9 +2952,11 @@
 
   function togglePause() {
     if (!running || attractMode || countdown > 0) return;
+    if (isOnlineGame() && netRole === 'guest') return;
     paused = !paused;
+    if (isOnlineGame() && netRole === 'host') netBroadcast({ t: 'pause', val: paused });
     document.getElementById('pause-btn').textContent = paused ? 'Resume (P)' : 'Pause (P)';
-    if (engGain) engGain.gain.value = (paused || muted) ? 0 : 0.04;
+    if (engGain) engGain.gain.value = (paused || muted) ? 0 : 0.04 * sfxVol;
     if (grindGain) grindGain.gain.value = 0;
     if (sparkGain) sparkGain.gain.value = 0;
     if (paused) openMenu(true, false, false);
@@ -3084,11 +3140,21 @@
         playerColor = parseInt(sw.dataset.color, 16);
         try { localStorage.setItem('tron_gc3d_livery', sw.dataset.color); } catch (e) {}
         document.getElementById('livery-caption').innerHTML = `Active Livery: <strong>${sw.dataset.name}</strong> — Rival colors auto-balance for contrast.`;
+        if (netRole === 'host') { lobbySlots[0].color = playerColor; renderLobbyRoster(); broadcastRoster(); }
+        else if (netRole === 'guest' && netConn) { netSendTo(netConn, { t: 'hello', name: playerName, color: playerColor }); }
         if (attractMode) startAttractDemo();
       });
     });
 
-    document.getElementById('start-btn').addEventListener('click', () => { initAudio(); resetGame(); });
+    document.getElementById('start-btn').addEventListener('click', () => {
+      initAudio();
+      if (isOnlineGame() && netRole === 'guest') {
+        netSendTo(netConn, { t: 'rematch_req' });
+        setNetStatus('Rematch request sent to Host! Waiting for Host to launch...', 'ok');
+        return;
+      }
+      resetGame();
+    });
     document.getElementById('resume-btn').addEventListener('click', togglePause);
     document.getElementById('restart-btn').addEventListener('click', () => {
       if (isOnlineGame() && netRole === 'guest') { netSendTo(netConn, { t: 'rematch_req' }); setNetStatus('Rematch request sent to Host!', 'ok'); return; }
@@ -3133,12 +3199,16 @@
     document.getElementById('spawn-select').addEventListener('change', e => { spawnPattern = e.target.value; });
     document.getElementById('tags-select').addEventListener('change', e => { showTags = e.target.value === 'on'; });
     document.getElementById('bgm-vol').addEventListener('input', e => { bgmVol = parseInt(e.target.value, 10) / 100; });
-    document.getElementById('sfx-vol').addEventListener('input', e => { sfxVol = parseInt(e.target.value, 10) / 100; });
+    document.getElementById('sfx-vol').addEventListener('input', e => {
+      sfxVol = parseInt(e.target.value, 10) / 100;
+      if (engGain && running && !paused && !muted && !attractMode && countdown <= 0) engGain.gain.value = 0.04 * sfxVol;
+    });
     const csInput = document.getElementById('callsign-input');
     csInput.value = playerName;
     csInput.addEventListener('input', e => {
       playerName = (e.target.value || 'PLAYER 1').toUpperCase().slice(0, 10);
-      lobbySlots[0].name = playerName;
+      if (netRole === 'host') { lobbySlots[0].name = playerName; renderLobbyRoster(); broadcastRoster(); }
+      else if (netRole === 'guest' && netConn) { netSendTo(netConn, { t: 'hello', name: playerName, color: playerColor }); }
       try { localStorage.setItem('tron_gc3d_callsign', playerName); } catch (err) {}
     });
     document.querySelectorAll('#livery-p2-swatches .swatch').forEach(sw => {
@@ -3172,11 +3242,28 @@
       muted = !muted; e.target.textContent = muted ? 'SFX: OFF' : 'SFX: ON';
       if (engGain) engGain.gain.value = (muted || !running || paused || attractMode) ? 0 : 0.04;
     });
-    document.getElementById('btn-left').addEventListener('pointerdown', () => { if (running && !paused && !attractMode && countdown <= 0) queueTurn(cycles[0], -1); });
-    document.getElementById('btn-right').addEventListener('pointerdown', () => { if (running && !paused && !attractMode && countdown <= 0) queueTurn(cycles[0], 1); });
-    document.getElementById('btn-boost').addEventListener('pointerdown', () => { boostHeld = true; });
-    document.getElementById('btn-boost').addEventListener('pointerup', () => { boostHeld = false; });
-    document.getElementById('btn-boost').addEventListener('pointerleave', () => { boostHeld = false; });
+    document.getElementById('btn-left').addEventListener('pointerdown', () => {
+      if (!running || paused || attractMode || countdown > 0) return;
+      if (isOnlineGame() && netRole === 'guest') netSendTo(netConn, { t: 'turn', d: -1 });
+      else queueTurn(cycles[0], -1);
+    });
+    document.getElementById('btn-right').addEventListener('pointerdown', () => {
+      if (!running || paused || attractMode || countdown > 0) return;
+      if (isOnlineGame() && netRole === 'guest') netSendTo(netConn, { t: 'turn', d: 1 });
+      else queueTurn(cycles[0], 1);
+    });
+    document.getElementById('btn-boost').addEventListener('pointerdown', () => {
+      boostHeld = true;
+      if (isOnlineGame() && netRole === 'guest') netSendTo(netConn, { t: 'ctrl', b: true, k: brakeHeld });
+    });
+    document.getElementById('btn-boost').addEventListener('pointerup', () => {
+      boostHeld = false;
+      if (isOnlineGame() && netRole === 'guest') netSendTo(netConn, { t: 'ctrl', b: false, k: brakeHeld });
+    });
+    document.getElementById('btn-boost').addEventListener('pointerleave', () => {
+      boostHeld = false;
+      if (isOnlineGame() && netRole === 'guest') netSendTo(netConn, { t: 'ctrl', b: false, k: brakeHeld });
+    });
 
     startAttractDemo();
     loop(0);
