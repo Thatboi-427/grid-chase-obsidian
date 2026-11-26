@@ -286,7 +286,7 @@
     <div class="studio-shell">
       <div class="studio-tag" id="studio-tag">LEGACY STORM OBSIDIAN • DIRECTOR'S CUT</div>
       <div class="studio-title" id="modal-title">GRID CHASE: LEGACY</div>
-      <div class="studio-sub" id="modal-sub">Competitive 3D Light Cycle Combat Arena</div>
+      <div class="studio-sub" id="modal-sub">Competitive 3D Light Cycle Combat Arena • <button id="lobby-audio-btn" style="padding:2px 8px;font-size:10px;border-color:#38bdf8;color:#38bdf8;">♪ CLICK TO START MUSIC</button></div>
 
       <div id="telemetry-block" style="display:none;">
         <div class="telemetry-grid">
@@ -897,10 +897,12 @@
   function initAudio() {
     if (audioCtx) {
       if (audioCtx.state === 'suspended') { try { audioCtx.resume(); } catch (e) {} }
+      if (window.updateLobbyAudioBadge) window.updateLobbyAudioBadge();
       return;
     }
     try {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') { try { audioCtx.resume(); } catch (e) {} }
       engOsc1 = audioCtx.createOscillator();
       engOsc2 = audioCtx.createOscillator();
       engFilter = audioCtx.createBiquadFilter();
@@ -928,6 +930,7 @@
       sparkOsc.start();
 
       startBgmLoop();
+      if (window.updateLobbyAudioBadge) window.updateLobbyAudioBadge();
     } catch (e) {}
   }
 
@@ -945,26 +948,27 @@
         const p = cycles[0];
         const spdBoost = (!inLobby && p && p.alive) ? Math.max(0, (p.speed - 36) * 14) : 0;
 
-        // Analog Tron: Legacy synth bass pulse (warmer/deeper in lobby, driving in-match)
+        if (audioCtx.state === 'suspended') return;
+        // Analog Tron: Legacy synth bass pulse (rich & audible in lobby, driving in-match)
         const o = audioCtx.createOscillator(), f = audioCtx.createBiquadFilter(), g = audioCtx.createGain();
         o.type = 'sawtooth'; o.frequency.setValueAtTime(freq, t);
         f.type = 'lowpass';
-        const baseCutoff = inLobby ? (step % 4 === 0 ? 320 : 190) : (step % 4 === 0 ? 540 : 280);
+        const baseCutoff = inLobby ? (step % 4 === 0 ? 640 : 420) : (step % 4 === 0 ? 780 : 460);
         f.frequency.setValueAtTime(baseCutoff + spdBoost, t);
-        f.frequency.exponentialRampToValueAtTime(95, t + 0.16);
-        const bassVol = (inLobby ? 0.032 : 0.045) * bgmVol;
+        f.frequency.exponentialRampToValueAtTime(140, t + 0.16);
+        const bassVol = (inLobby ? 0.095 : 0.11) * bgmVol;
         g.gain.setValueAtTime(Math.max(0.0001, bassVol), t);
-        g.gain.exponentialRampToValueAtTime(0.0008, t + 0.17);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.17);
         o.connect(f); f.connect(g); g.connect(audioCtx.destination);
         o.start(t); o.stop(t + 0.18);
 
-        // Shimmering atmospheric arpeggio shimmer during Lobby / Menu selection
+        // Shimmering atmospheric arpeggio during Lobby / Menu selection
         if (inLobby && step % 2 === 0 && bgmVol > 0.01) {
           const ao = audioCtx.createOscillator(), ag = audioCtx.createGain();
           ao.type = 'triangle';
           ao.frequency.setValueAtTime(LOBBY_ARP[(step / 2) % LOBBY_ARP.length], t);
-          ag.gain.setValueAtTime(0.016 * bgmVol, t);
-          ag.gain.exponentialRampToValueAtTime(0.0008, t + 0.30);
+          ag.gain.setValueAtTime(0.052 * bgmVol, t);
+          ag.gain.exponentialRampToValueAtTime(0.001, t + 0.30);
           ao.connect(ag); ag.connect(audioCtx.destination);
           ao.start(t); ao.stop(t + 0.32);
         }
@@ -3120,9 +3124,33 @@
 
   window.onload = function() {
     initThree();
-    const unlockLobbyAudio = () => { initAudio(); };
-    window.addEventListener('pointerdown', unlockLobbyAudio, { once: true });
-    window.addEventListener('keydown', unlockLobbyAudio, { once: true });
+    function updateLobbyAudioBadge() {
+      const b = document.getElementById('lobby-audio-btn');
+      if (!b) return;
+      if (muted || !musicOn) { b.textContent = '♪ MUSIC: OFF'; b.style.color = '#94a3b8'; }
+      else if (audioCtx && audioCtx.state === 'running') { b.textContent = '♪ MUSIC: ON'; b.style.color = '#10b981'; b.style.borderColor = '#10b981'; }
+      else { b.textContent = '♪ CLICK TO START MUSIC'; b.style.color = '#38bdf8'; }
+    }
+    window.updateLobbyAudioBadge = updateLobbyAudioBadge;
+    const unlockLobbyAudio = () => {
+      initAudio();
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().then(updateLobbyAudioBadge).catch(() => {});
+      } else {
+        if (window.updateLobbyAudioBadge) window.updateLobbyAudioBadge();
+      }
+    };
+    // Persistent click/touchend/keydown unlock so browser autoplay policies never leave AudioContext suspended!
+    window.addEventListener('click', unlockLobbyAudio, true);
+    window.addEventListener('touchend', unlockLobbyAudio, true);
+    window.addEventListener('keydown', unlockLobbyAudio, true);
+    document.getElementById('lobby-audio-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      if (!audioCtx || audioCtx.state === 'suspended') { unlockLobbyAudio(); return; }
+      musicOn = !musicOn;
+      document.getElementById('music-btn').textContent = musicOn ? 'BGM: ON' : 'BGM: OFF';
+      if (window.updateLobbyAudioBadge) window.updateLobbyAudioBadge();
+    });
     handleResize();
     window.addEventListener('resize', handleResize);
     if (typeof ResizeObserver !== 'undefined') {
