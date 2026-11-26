@@ -931,30 +931,46 @@
     } catch (e) {}
   }
 
+  const LOBBY_ARP = [220, 261.63, 329.63, 440, 392, 329.63, 293.66, 261.63];
+
   function startBgmLoop() {
     if (bgmTimer) clearInterval(bgmTimer);
     bgmTimer = setInterval(() => {
-      if (!audioCtx || muted || !musicOn || !running || paused || attractMode) return;
+      if (!audioCtx || muted || !musicOn || document.hidden || viewportHidden) return;
       try {
         const t = audioCtx.currentTime;
         const step = bgmStep++;
+        const inLobby = attractMode || !running || paused;
         const freq = BGM_BASS[step % BGM_BASS.length];
         const p = cycles[0];
-        const spdBoost = p && p.alive ? Math.max(0, (p.speed - 36) * 14) : 0;
+        const spdBoost = (!inLobby && p && p.alive) ? Math.max(0, (p.speed - 36) * 14) : 0;
 
-        // Analog synth bass pulse
+        // Analog Tron: Legacy synth bass pulse (warmer/deeper in lobby, driving in-match)
         const o = audioCtx.createOscillator(), f = audioCtx.createBiquadFilter(), g = audioCtx.createGain();
         o.type = 'sawtooth'; o.frequency.setValueAtTime(freq, t);
         f.type = 'lowpass';
-        f.frequency.setValueAtTime((step % 4 === 0 ? 540 : 280) + spdBoost, t);
-        f.frequency.exponentialRampToValueAtTime(110, t + 0.16);
-        g.gain.setValueAtTime(0.045 * bgmVol, t);
-        g.gain.exponentialRampToValueAtTime(0.001, t + 0.17);
+        const baseCutoff = inLobby ? (step % 4 === 0 ? 320 : 190) : (step % 4 === 0 ? 540 : 280);
+        f.frequency.setValueAtTime(baseCutoff + spdBoost, t);
+        f.frequency.exponentialRampToValueAtTime(95, t + 0.16);
+        const bassVol = (inLobby ? 0.032 : 0.045) * bgmVol;
+        g.gain.setValueAtTime(Math.max(0.0001, bassVol), t);
+        g.gain.exponentialRampToValueAtTime(0.0008, t + 0.17);
         o.connect(f); f.connect(g); g.connect(audioCtx.destination);
         o.start(t); o.stop(t + 0.18);
 
-        // Four-on-the-floor sub kick on beats 0, 4, 8, 12
-        if (step % 4 === 0) {
+        // Shimmering atmospheric arpeggio shimmer during Lobby / Menu selection
+        if (inLobby && step % 2 === 0 && bgmVol > 0.01) {
+          const ao = audioCtx.createOscillator(), ag = audioCtx.createGain();
+          ao.type = 'triangle';
+          ao.frequency.setValueAtTime(LOBBY_ARP[(step / 2) % LOBBY_ARP.length], t);
+          ag.gain.setValueAtTime(0.016 * bgmVol, t);
+          ag.gain.exponentialRampToValueAtTime(0.0008, t + 0.30);
+          ao.connect(ag); ag.connect(audioCtx.destination);
+          ao.start(t); ao.stop(t + 0.32);
+        }
+
+        // Four-on-the-floor sub kick during active gameplay
+        if (!inLobby && step % 4 === 0 && bgmVol > 0.01) {
           const ko = audioCtx.createOscillator(), kg = audioCtx.createGain();
           ko.type = 'sine';
           ko.frequency.setValueAtTime(110, t);
@@ -3104,6 +3120,9 @@
 
   window.onload = function() {
     initThree();
+    const unlockLobbyAudio = () => { initAudio(); };
+    window.addEventListener('pointerdown', unlockLobbyAudio, { once: true });
+    window.addEventListener('keydown', unlockLobbyAudio, { once: true });
     handleResize();
     window.addEventListener('resize', handleResize);
     if (typeof ResizeObserver !== 'undefined') {
