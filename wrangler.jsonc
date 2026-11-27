@@ -3,6 +3,7 @@
   "name": "grid-chase-obsidian",
   "main": "relay/src/index.js",
   "compatibility_date": "2026-01-01",
+  "previews": {},
   "durable_objects": {
     "bindings": [
       {
