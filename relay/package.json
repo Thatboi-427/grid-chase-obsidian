@@ -1,0 +1,13 @@
+{
+  "name": "grid-chase-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Free-tier Cloudflare Workers + Durable Objects WebSocket relay for Grid Chase: Obsidian",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
