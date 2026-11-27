@@ -1906,7 +1906,7 @@
     }
     box.replaceChildren(frag);
     if (netRole === 'host') {
-      const guests = lobbySlots.filter(sl => sl.type === 'guest');
+      const guests = lobbySlots.slice(1, maxS).filter(sl => sl.type === 'guest');
       const readyCount = guests.filter(sl => sl.ready).length;
       const allReady = guests.length > 0 && readyCount === guests.length;
       const btn = document.getElementById('online-start-btn');
@@ -1920,7 +1920,8 @@
   }
 
   function allOnlineGuestsReady() {
-    const guests = lobbySlots.filter(sl => sl.type === 'guest');
+    const maxS = maxOnlineSlots();
+    const guests = lobbySlots.slice(1, maxS).filter(sl => sl.type === 'guest');
     return guests.length > 0 && guests.every(sl => sl.ready);
   }
 
@@ -2291,7 +2292,7 @@
       camera.position.set(me.x - d.x * 13, 5.2, me.z - d.z * 13);
       lookTarget.set(me.x + d.x * 16, 1.0, me.z + d.z * 16);
       camera.lookAt(lookTarget);
-      countdown = 2.0; lastCountInt = 4; running = true;
+      lastHostPong = performance.now(); countdown = 2.0; lastCountInt = 4; running = true;
     } else if (msg.t === 'turn_ev' && cycles[msg.idx]) {
       const c = cycles[msg.idx];
       if (c.segments.length > 0) {
@@ -2326,6 +2327,7 @@
       playTone(880, 0.18, 'square', 0.08);
     } else if (msg.t === 'pause') {
       paused = !!msg.val;
+      lastHostPong = performance.now();
       document.getElementById('pause-btn').textContent = paused ? 'Resume (P)' : 'Pause (P)';
       if (engGain) engGain.gain.value = (paused || muted) ? 0 : 0.04 * sfxVol;
       if (paused) openMenu(true, false, false);
@@ -2364,8 +2366,11 @@
       if (grindGain) grindGain.gain.value = 0;
       if (sparkGain) sparkGain.gain.value = 0;
       document.getElementById('spec-bar').classList.remove('on');
+      guestReady = false;
+      const rBtn = document.getElementById('ready-btn');
+      if (rBtn) rBtn.textContent = 'READY UP';
       const me = cycles.find(c => c.slotIdx === mySlot);
-      openMenu(false, true, me && me.alive);
+      openMenu(false, true, !!(me && me.alive));
     }
   }
 
@@ -2777,6 +2782,23 @@
     }
     if (flashLight && flashLight.intensity > 0) flashLight.intensity = Math.max(0, flashLight.intensity - rawDt * 18);
     if (activeDisc) { activeDisc.ring.rotation.z += rawDt * 3.5; activeDisc.ring.position.y = 1.6 + Math.sin(now * 8) * 0.25; }
+    // Keep online Ping/Pong heartbeat running even while paused so Guests don't time out
+    if (isOnlineGame() && netRole !== 'none') {
+      pingAcc += rawDt;
+      if (pingAcc >= 2.0) {
+        pingAcc = 0;
+        const ts = performance.now();
+        if (netRole === 'host') {
+          netConns.forEach(c => netSendTo(c, { t: 'ping', ts }));
+        } else if (netConn && netConn.open) {
+          netSendTo(netConn, { t: 'ping', ts });
+          if (lastHostPong > 0 && ts - lastHostPong > 12000) {
+            setNetStatus('Host connection timed out (>12s).', 'err');
+            disconnectOnline();
+          }
+        }
+      }
+    }
     if (paused) return;
 
     const banner = document.getElementById('banner');
@@ -2840,23 +2862,7 @@
       }
     }
 
-    // N3: 2-Second Ping/Pong Heartbeat
-    if (isOnlineGame() && netRole !== 'none') {
-      pingAcc += rawDt;
-      if (pingAcc >= 2.0) {
-        pingAcc = 0;
-        const ts = performance.now();
-        if (netRole === 'host') {
-          netConns.forEach(c => netSendTo(c, { t: 'ping', ts }));
-        } else if (netConn && netConn.open) {
-          netSendTo(netConn, { t: 'ping', ts });
-          if (lastHostPong > 0 && ts - lastHostPong > 6500) {
-            setNetStatus('Host connection timed out (>6s).', 'err');
-            disconnectOnline();
-          }
-        }
-      }
-    }
+
 
     const isGuest = isOnlineGame() && netRole === 'guest';
     const myCyc = isGuest ? (cycles.find(c => c.slotIdx === mySlot) || cycles[0]) : cycles[0];
@@ -3160,6 +3166,11 @@
         document.getElementById('p2-wins').textContent = p2Wins;
         if (isOnlineGame() && netRole === 'host') {
           netBroadcast({ t: 'end', winnerText: splitWinnerText, sc: score, kills: takedowns });
+          for (let i = 1; i < 4; i++) {
+            if (lobbySlots[i].type === 'guest') lobbySlots[i].ready = false;
+          }
+          renderLobbyRoster();
+          broadcastRoster();
         }
       } else if (myCyc.alive) { wins++; }
       try {
@@ -3172,7 +3183,7 @@
       if (sparkGain) sparkGain.gain.value = 0;
       banner.classList.remove('show');
       vig.classList.remove('danger', 'grind');
-      openMenu(false, true, p.alive);
+      openMenu(false, true, myCyc.alive);
     }
     drawRadar();
   }
@@ -3292,7 +3303,7 @@
     fxCanvas.width = w;
     fxCanvas.height = h;
     if (engGain && !muted && running && !paused && !attractMode && countdown <= 0) {
-      engGain.gain.value = 0.04;
+      engGain.gain.value = 0.04 * sfxVol;
     }
   }
 
@@ -3307,12 +3318,28 @@
     if (e.key === 'm' || e.key === 'M') { document.getElementById('mute-btn').click(); return; }
     if (e.key === 'r' || e.key === 'R') {
       if (postMatchLockout > 0) return;
-      if (isOnlineGame() && netRole === 'guest') { netSendTo(netConn, { t: 'rematch_req' }); setNetStatus('Rematch request sent to Host!', 'ok'); return; }
+      if (isOnlineGame() && netRole === 'guest') {
+        guestReady = true;
+        const rBtn = document.getElementById('ready-btn');
+        if (rBtn) rBtn.textContent = 'READY ✓';
+        netSendTo(netConn, { t: 'ready', val: true });
+        netSendTo(netConn, { t: 'rematch_req' });
+        setNetStatus('Marked READY & sent rematch request to Host!', 'ok');
+        return;
+      }
+      if (isOnlineGame() && netRole === 'host' && !allOnlineGuestsReady()) {
+        setNetStatus('All joined players must click READY UP before rematch.', 'err');
+        return;
+      }
       initAudio(); resetGame(); return;
     }
     if (e.key === 'Enter' && (!running || attractMode)) {
       if (postMatchLockout > 0) return;
       if (isOnlineGame() && netRole === 'guest') return;
+      if (isOnlineGame() && netRole === 'host' && !allOnlineGuestsReady()) {
+        setNetStatus('All joined players must click READY UP before launching.', 'err');
+        return;
+      }
       initAudio(); resetGame(); return;
     }
     if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { togglePause(); return; }
@@ -3404,6 +3431,7 @@
         if (sparkGain) sparkGain.gain.value = 0;
       } else {
         handleResize();
+        if (netRole === 'guest') lastHostPong = performance.now();
         if (netRole === 'host' && netRoomCode && (!netSocket || netSocket.readyState !== WebSocket.OPEN)) {
           hostOnlineRoom(netRoomCode);
         }
@@ -3446,15 +3474,35 @@
     document.getElementById('start-btn').addEventListener('click', () => {
       initAudio();
       if (isOnlineGame() && netRole === 'guest') {
+        guestReady = true;
+        const rBtn = document.getElementById('ready-btn');
+        if (rBtn) rBtn.textContent = 'READY ✓';
+        netSendTo(netConn, { t: 'ready', val: true });
         netSendTo(netConn, { t: 'rematch_req' });
-        setNetStatus('Rematch request sent to Host! Waiting for Host to launch...', 'ok');
+        setNetStatus('Marked READY & sent rematch request to Host!', 'ok');
+        return;
+      }
+      if (isOnlineGame() && netRole === 'host' && !allOnlineGuestsReady()) {
+        setNetStatus('All joined players must click READY UP before launching.', 'err');
         return;
       }
       resetGame();
     });
     document.getElementById('resume-btn').addEventListener('click', togglePause);
     document.getElementById('restart-btn').addEventListener('click', () => {
-      if (isOnlineGame() && netRole === 'guest') { netSendTo(netConn, { t: 'rematch_req' }); setNetStatus('Rematch request sent to Host!', 'ok'); return; }
+      if (isOnlineGame() && netRole === 'guest') {
+        guestReady = true;
+        const rBtn = document.getElementById('ready-btn');
+        if (rBtn) rBtn.textContent = 'READY ✓';
+        netSendTo(netConn, { t: 'ready', val: true });
+        netSendTo(netConn, { t: 'rematch_req' });
+        setNetStatus('Marked READY & sent rematch request to Host!', 'ok');
+        return;
+      }
+      if (isOnlineGame() && netRole === 'host' && !allOnlineGuestsReady()) {
+        setNetStatus('All joined players must click READY UP before restarting.', 'err');
+        return;
+      }
       initAudio(); resetGame();
     });
     document.getElementById('pause-btn').addEventListener('click', togglePause);
@@ -3469,7 +3517,6 @@
     document.getElementById('snap-select').addEventListener('change', e => { camSnap = parseFloat(e.target.value); });
     document.getElementById('trail-select').addEventListener('change', e => { trailMode = e.target.value; });
     document.getElementById('mode-select').addEventListener('change', e => { gameMode = e.target.value; });
-    document.getElementById('online-mode-select').addEventListener('change', e => { onlineMode = e.target.value; });
     document.getElementById('host-btn').addEventListener('click', () => { initAudio(); hostOnlineRoom(); });
     document.getElementById('join-btn').addEventListener('click', () => { initAudio(); joinOnlineRoom(); });
     const relayIn = document.getElementById('relay-url-input');
@@ -3497,6 +3544,16 @@
     });
     document.getElementById('online-mode-select').addEventListener('change', e => {
       onlineMode = e.target.value;
+      if (netRole === 'host') {
+        const maxS = maxOnlineSlots();
+        for (let i = maxS; i < 4; i++) {
+          if (lobbySlots[i].type === 'guest' && lobbySlots[i].conn) {
+            const ovConn = lobbySlots[i].conn;
+            netSendTo(ovConn, { t: 'full' });
+            setTimeout(() => { try { ovConn.close(); } catch (_) {} }, 100);
+          }
+        }
+      }
       renderLobbyRoster(); broadcastRoster();
     });
     document.getElementById('ready-btn').addEventListener('click', e => {
