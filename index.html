@@ -1906,10 +1906,22 @@
     }
     box.replaceChildren(frag);
     if (netRole === 'host') {
-      const guests = lobbySlots.filter(sl => sl.type === 'guest').length;
+      const guests = lobbySlots.filter(sl => sl.type === 'guest');
+      const readyCount = guests.filter(sl => sl.ready).length;
+      const allReady = guests.length > 0 && readyCount === guests.length;
       const btn = document.getElementById('online-start-btn');
-      if (btn) btn.disabled = guests < 1;
+      if (btn) {
+        btn.disabled = !allReady;
+        btn.textContent = guests.length === 0
+          ? 'WAITING FOR PLAYERS...'
+          : (allReady ? 'LAUNCH ONLINE MATCH' : `WAITING FOR READY (${readyCount}/${guests.length})`);
+      }
     }
+  }
+
+  function allOnlineGuestsReady() {
+    const guests = lobbySlots.filter(sl => sl.type === 'guest');
+    return guests.length > 0 && guests.every(sl => sl.ready);
   }
 
   function broadcastRoster() {
@@ -2005,7 +2017,7 @@
           document.getElementById('host-code-row').style.display = 'flex';
           document.getElementById('host-launch-row').style.display = 'flex';
           document.getElementById('online-start-btn').style.display = 'inline-block';
-          document.getElementById('online-start-btn').disabled = netConns.length < 1;
+          document.getElementById('online-start-btn').disabled = !allOnlineGuestsReady();
           document.getElementById('ready-btn').style.display = 'none';
           renderLobbyRoster();
           setNetStatus('Room live! Share code GRID-' + netRoomCode + ' (works across Wi-Fi & 5G).', 'ok');
@@ -2041,7 +2053,7 @@
           netSendTo(conn, { t: 'welcome', slot: freeIdx, name: lobbySlots[freeIdx].name });
           renderLobbyRoster();
           broadcastRoster();
-          setNetStatus('Player ' + (freeIdx + 1) + ' connected! Launch anytime or wait for more players.', 'ok');
+          setNetStatus('Player ' + (freeIdx + 1) + ' connected! Waiting for all players to click READY UP...', 'ok');
         } else if (env.t === 'peer_msg' && env.from) {
           const entry = hostPeerMap.get(String(env.from));
           if (entry) handleHostMessage(entry.slotIdx, entry.conn, env.data);
@@ -2197,6 +2209,13 @@
     } else if (msg.t === 'ready') {
       lobbySlots[slotIdx].ready = !!msg.val;
       renderLobbyRoster(); broadcastRoster();
+      if (allOnlineGuestsReady()) {
+        setNetStatus('All players READY! Click LAUNCH ONLINE MATCH to start.', 'ok');
+      } else {
+        const guests = lobbySlots.filter(sl => sl.type === 'guest');
+        const readyCount = guests.filter(sl => sl.ready).length;
+        setNetStatus(`Waiting for players to Ready Up (${readyCount}/${guests.length} ready)...`, '');
+      }
     } else if (msg.t === 'ping') {
       lobbySlots[slotIdx].lastPong = performance.now();
       netSendTo(conn, { t: 'pong', ts: msg.ts });
@@ -3466,8 +3485,10 @@
     });
     document.getElementById('net-disconnect-btn').addEventListener('click', disconnectOnline);
     document.getElementById('online-start-btn').addEventListener('click', () => {
-      if (netRole === 'host' && netConns.length > 0) {
+      if (netRole === 'host' && allOnlineGuestsReady()) {
         initAudio(); gameMode = onlineMode; resetGame();
+      } else if (netRole === 'host') {
+        setNetStatus('All joined players must click READY UP before launching.', 'err');
       }
     });
     document.getElementById('ai-fill-select').addEventListener('change', e => {
